@@ -1,0 +1,12 @@
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint to ensure the service is running.
+    Returns a 200 OK status with a JSON payload indicating the service is healthy.
+    """
+    response_data = {'status': 'ok'}
+    return jsonify(response_data), 200

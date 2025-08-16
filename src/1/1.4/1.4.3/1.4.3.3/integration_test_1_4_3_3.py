@@ -1,0 +1,228 @@
+import unittest
+import re
+
+# --- IMPLEMENTATIONS TO BE TESTED ---
+
+class KnowledgeBase:
+    """A simple in-memory document store."""
+    def __init__(self):
+        self.documents = {}
+
+    def add_document(self, doc_id: str, text: str):
+        """Adds or updates a document."""
+        self.documents[doc_id] = text
+
+    def get_document(self, doc_id: str) -> str:
+        """Retrieves a document by its ID."""
+        return self.documents.get(doc_id)
+    
+    def get_all_documents(self):
+        """Returns all documents as a dictionary."""
+        return self.documents.items()
+
+    def clear(self):
+        """Removes all documents from the knowledge base."""
+        self.documents.clear()
+
+class DocumentIngestor:
+    """Handles adding documents to the knowledge base."""
+    def __init__(self, knowledge_base: KnowledgeBase):
+        self.kb = knowledge_base
+
+    def ingest(self, doc_id: str, text: str):
+        """Ingests a single document."""
+        if not doc_id or not text:
+            raise ValueError("Document ID and text cannot be empty.")
+        self.kb.add_document(doc_id, text)
+
+class Retriever:
+    """
+    A simple keyword-based retriever.
+    Finds documents that contain any of the words from the query.
+    """
+    def __init__(self, knowledge_base: KnowledgeBase):
+        self.kb = knowledge_base
+
+    def retrieve(self, query: str, top_k: int = 3) -> list[str]:
+        """
+        Retrieves up to top_k document IDs based on keyword matching.
+        It's case-insensitive.
+        """
+        query_words = set(re.findall(r'\w+', query.lower()))
+        if not query_words:
+            return []
+
+        scored_docs = []
+        for doc_id, text in self.kb.get_all_documents():
+            doc_words = set(re.findall(r'\w+', text.lower()))
+            common_words = query_words.intersection(doc_words)
+            if common_words:
+                # Score based on the number of matching words
+                scored_docs.append((len(common_words), doc_id))
+        
+        # Sort by score (descending)
+        scored_docs.sort(key=lambda x: x[0], reverse=True)
+        
+        # Return the doc_ids of the top_k documents
+        return [doc_id for score, doc_id in scored_docs[:top_k]]
+
+class AnswerGenerator:
+    """
+    Generates an answer based on provided context.
+    """
+    def generate(self, query: str, contexts: list[str]) -> str:
+        """
+        Synthesizes an answer from a list of context strings.
+        """
+        if not contexts:
+            return "I'm sorry, I could not find any relevant information to answer your question."
+
+        combined_context = " ".join(contexts)
+        return f"Based on the provided information: {combined_context}"
+
+class QASystem:
+    """
+    Orchestrates the end-to-end question-answering flow.
+    """
+    def __init__(self, retriever: Retriever, generator: AnswerGenerator):
+        self.retriever = retriever
+        self.generator = generator
+        # The QASystem accesses the knowledge base through the retriever
+        self.kb = self.retriever.kb
+
+    def ask(self, question: str) -> str:
+        """
+        Takes a user question and returns a generated answer.
+        1. Retrieve relevant document IDs.
+        2. Fetch the full text for those documents.
+        3. Generate an answer based on the retrieved text.
+        """
+        retrieved_doc_ids = self.retriever.retrieve(question)
+        
+        contexts = []
+        for doc_id in retrieved_doc_ids:
+            doc_text = self.kb.get_document(doc_id)
+            if doc_text:
+                contexts.append(doc_text)
+        
+        answer = self.generator.generate(question, contexts)
+        return answer
+
+# --- INTEGRATION TEST ---
+
+class TestQAFlowIntegration(unittest.TestCase):
+
+    def setUp(self):
+        """
+        Set up a fresh Q&A system for each test.
+        This ensures tests are isolated and don't interfere with each other.
+        """
+        # 1. Initialize components
+        self.kb = KnowledgeBase()
+        self.ingestor = DocumentIngestor(self.kb)
+        self.retriever = Retriever(self.kb)
+        self.generator = AnswerGenerator()
+        self.qa_system = QASystem(self.retriever, self.generator)
+
+        # 2. Ingest sample data into the knowledge base
+        self.ingestor.ingest(
+            doc_id="doc1",
+            text="Python is an interpreted, high-level, general-purpose programming language."
+        )
+        self.ingestor.ingest(
+            doc_id="doc2",
+            text="The capital of France is Paris. Paris is known for the Eiffel Tower."
+        )
+        self.ingestor.ingest(
+            doc_id="doc3",
+            text="The sun is a star at the center of the Solar System."
+        )
+        self.ingestor.ingest(
+            doc_id="doc4",
+            text="Paris also has the Louvre Museum, home to the Mona Lisa."
+        )
+
+    def test_successful_end_to_end_flow(self):
+        """
+        Tests a standard successful scenario where a question is asked,
+        a relevant document is found, and a correct answer is generated.
+        """
+        question = "What is the capital of France?"
+        answer = self.qa_system.ask(question)
+        
+        # Check that the answer is based on the correct context
+        self.assertIn("Based on the provided information", answer)
+        self.assertIn("capital of France is Paris", answer)
+        # Ensure irrelevant context is not included
+        self.assertNotIn("Python", answer)
+
+    def test_no_relevant_documents_found(self):
+        """
+        Tests the scenario where the query has no matching keywords
+        in the knowledge base.
+        """
+        question = "What is the currency of Japan?"
+        answer = self.qa_system.ask(question)
+        
+        # The system should gracefully indicate that it cannot find an answer
+        expected_response = "I'm sorry, I could not find any relevant information to answer your question."
+        self.assertEqual(answer, expected_response)
+
+    def test_flow_with_empty_knowledge_base(self):
+        """
+        Tests how the system behaves when no documents have been ingested.
+        """
+        # Create a new, empty system
+        empty_kb = KnowledgeBase()
+        empty_retriever = Retriever(empty_kb)
+        empty_qa_system = QASystem(empty_retriever, self.generator)
+        
+        question = "What is Python?"
+        answer = empty_qa_system.ask(question)
+        
+        expected_response = "I'm sorry, I could not find any relevant information to answer your question."
+        self.assertEqual(answer, expected_response)
+
+    def test_retrieval_of_multiple_documents(self):
+        """
+        Tests a query that should match multiple documents, and ensures
+        the generated answer combines information from them.
+        """
+        question = "Tell me about Paris"
+        answer = self.qa_system.ask(question)
+        
+        # The query "Paris" matches doc2 and doc4. The answer should contain both.
+        self.assertIn("capital of France is Paris", answer)
+        self.assertIn("Louvre Museum", answer)
+        self.assertIn("Eiffel Tower", answer)
+        # Ensure the combined context is present
+        self.assertIn("Mona Lisa", answer)
+
+    def test_case_insensitivity_of_retrieval(self):
+        """
+        Tests that the system can retrieve documents even if the
+        casing of the query differs from the document text.
+        """
+        question = "what is PYTHON?"
+        answer = self.qa_system.ask(question)
+        
+        self.assertIn("high-level", answer)
+        self.assertIn("programming language", answer)
+        self.assertNotIn("Paris", answer)
+
+    def test_system_handles_empty_query(self):
+        """
+        Tests that the system returns a 'no information' response
+        when the query is empty or contains no keywords.
+        """
+        question = ""
+        answer = self.qa_system.ask(question)
+        expected_response = "I'm sorry, I could not find any relevant information to answer your question."
+        self.assertEqual(answer, expected_response)
+
+        question_no_keywords = "!@#$%^&*"
+        answer_no_keywords = self.qa_system.ask(question_no_keywords)
+        self.assertEqual(answer_no_keywords, expected_response)
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

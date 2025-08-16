@@ -1,0 +1,140 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T15:49:25.044674
+Task: Implement the generation step: construct a context-aware prompt with retrieved data and user query for an LLM
+
+Output:
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+
+# In a real application, these would be imported from a central models file.
+class SourceDocument(BaseModel):
+    """Represents a source document (e.g., a commit) used for generating an answer."""
+    page_content: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    score: float = 0.0
+
+class AnswerResponse(BaseModel):
+    """The final response object for the Q&A endpoint."""
+    answer: str
+    session_id: Optional[str] = None
+    source_documents: List[SourceDocument] = Field(default_factory=list)
+
+
+# In a real application, these would be initialized and managed as singletons
+# or through a dependency injection framework.
+# For this example, we mock them to focus on the full RAG pipeline.
+class MockEmbeddingProvider:
+    """Placeholder for a sentence-transformer or OpenAI embedding model."""
+    def encode(self, text: str) -> List[float]:
+        return [len(text) / 100.0] * 128
+
+class MockVectorDB:
+    """Placeholder for a vector database client like ChromaDB or Pinecone."""
+    def query(self, query_embeddings: List[List[float]], n_results: int) -> dict:
+        return {
+            'ids': [['commit_abc123', 'commit_def456']],
+            'documents': [[
+                "feat(api): add user profile endpoint\n\n- Implement GET /api/v1/users/me",
+                "fix(db): correct indexing on commits table\n\n- The timestamp column was not indexed."
+            ]],
+            'metadatas': [[
+                {'author': 'a@dev.com', 'hash': 'abc123...'},
+                {'author': 'b@dev.com', 'hash': 'def456...'}
+            ]],
+            'distances': [[0.15, 0.32]]
+        }
+
+class MockLLM:
+    """Placeholder for a Large Language Model client like OpenAI or Anthropic."""
+    async def generate(self, prompt: str) -> str:
+        # Simulate a response that shows the prompt was received correctly.
+        question_part = prompt.split("Question:")[-1].split("Helpful Answer:")[0].strip()
+        context_len = len(prompt.split("Context:")[1].split("Question:")[0].strip())
+        return (
+            f"Based on the {context_len} characters of provided context, "
+            f"the answer to '{question_part}' is that a user profile endpoint was added and a "
+            f"database index was fixed."
+        )
+
+embedding_model = MockEmbeddingProvider()
+vector_db_collection = MockVectorDB()
+llm_client = MockLLM()
+
+
+async def get_answer(query: str, session_id: Optional[str] = None, context: Optional[str] = None) -> 'AnswerResponse':
+    """
+    Performs a full RAG pipeline:
+    1.  Retrieval: Embeds the query and fetches relevant documents (commits).
+    2.  Generation: Constructs a prompt with the retrieved documents and generates
+        an answer using a Language Model.
+
+    Args:
+        query: The user's natural language question.
+        session_id: An optional identifier for the conversation session.
+        context: Optional conversational context to refine the search.
+
+    Returns:
+        An AnswerResponse object containing the generated answer and source documents.
+    """
+    # --- 1. Retrieval Step ---
+    search_query = f"{context}\n{query}" if context else query
+    query_embedding = embedding_model.encode(search_query)
+
+    results = vector_db_collection.query(
+        query_embeddings=[query_embedding],
+        n_results=5
+    )
+
+    source_documents = []
+    if results and results.get('ids') and results['ids'][0]:
+        ids, documents, metadatas, distances = (
+            results['ids'][0],
+            results['documents'][0],
+            results['metadatas'][0],
+            results['distances'][0]
+        )
+        for i in range(len(ids)):
+            source_documents.append(
+                SourceDocument(
+                    page_content=documents[i],
+                    metadata=metadatas[i],
+                    score=distances[i]
+                )
+            )
+
+    # --- 2. Generation Step ---
+    final_answer = ""
+    if not source_documents:
+        final_answer = "I could not find any relevant information in the commit history to answer your question."
+    else:
+        # Construct a context string from the retrieved documents.
+        context_str = "\n\n---\n\n".join([doc.page_content for doc in source_documents])
+
+        # Define the prompt template for the LLM.
+        prompt_template = """
+Use the following context from commit history to answer the question at the end.
+The context contains excerpts from git commits.
+If you don't know the answer, just say that you don't know. Do not try to make up an answer.
+
+Context:
+{context}
+
+Question: {question}
+
+Helpful Answer:"""
+
+        # Format the prompt with the retrieved context and user query.
+        prompt = prompt_template.format(context=context_str, question=query)
+
+        # Call the LLM to generate the final answer.
+        final_answer = await llm_client.generate(prompt)
+
+    # --- 3. Construct and return the final response ---
+    return AnswerResponse(
+        answer=final_answer,
+        session_id=session_id,
+        source_documents=source_documents
+    )
+
+==================================================

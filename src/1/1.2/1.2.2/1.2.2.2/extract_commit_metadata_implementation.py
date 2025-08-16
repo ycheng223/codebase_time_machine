@@ -1,0 +1,54 @@
+import git
+
+def extract_commit_metadata(repo_path):
+    """
+    Extracts metadata (author, date, message, diffs) for each commit in a Git repository.
+
+    Args:
+        repo_path (str): The file system path to the Git repository.
+
+    Returns:
+        list: A list of dictionaries, where each dictionary contains metadata
+              for a single commit. Returns an empty list if the repository
+              path is invalid or not a Git repository.
+    """
+    try:
+        repo = git.Repo(repo_path, search_parent_directories=True)
+    except (git.InvalidGitRepositoryError, git.NoSuchPathError):
+        return []
+
+    commits_data = []
+    for commit in repo.iter_commits():
+        # Determine the parent for generating the diff
+        # For the first commit, there are no parents, so we diff against an empty tree
+        parent = commit.parents[0] if commit.parents else git.NULL_TREE
+
+        # create_patch=True is necessary to get the textual diff
+        diffs = parent.diff(commit, create_patch=True)
+
+        extracted_diffs = []
+        for diff_item in diffs:
+            diff_text = ''
+            try:
+                # diff.diff is bytes, so we decode it
+                diff_text = diff_item.diff.decode('utf-8', errors='ignore')
+            except (UnicodeDecodeError, AttributeError):
+                # Handle cases where diff is binary or None
+                diff_text = '[Binary file or no text diff available]'
+
+            extracted_diffs.append({
+                'file_path': diff_item.b_path or diff_item.a_path,
+                'change_type': diff_item.change_type,
+                'diff_text': diff_text
+            })
+
+        commit_info = {
+            'hash': commit.hexsha,
+            'author': commit.author.name,
+            'date': commit.committed_datetime.isoformat(),
+            'message': commit.message.strip(),
+            'diffs': extracted_diffs
+        }
+        commits_data.append(commit_info)
+
+    return commits_data

@@ -1,0 +1,34 @@
+# Auto-generated requirements.txt
+# You may need to adjust versions as needed
+
+pyinstaller>=5.6.2
+ast
+chromadb
+commit_extractor
+contextlib
+copy
+data_processor
+database
+dataclasses
+embedding_generator
+fastapi
+flask
+git
+implementation_1_1_3_2
+implementation_1_7_1_2
+implementation_1_7_1_3
+main
+my_lib
+numpy
+openai
+pydantic
+radon
+requests
+sentence_transformers
+shutil
+sqlite3
+subprocess
+tempfile
+urllib
+uuid
+web_interface

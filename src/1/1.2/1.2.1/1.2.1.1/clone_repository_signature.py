@@ -1,0 +1,1 @@
+def clone_repository(repository_url: str, local_path: Optional[str] = None, branch: Optional[str] = None, depth: Optional[int] = None, auth: Optional[Tuple[str, str]] = None) -> str:

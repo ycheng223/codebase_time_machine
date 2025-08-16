@@ -1,0 +1,20 @@
+import re
+
+def extract_ticket_ids(commit_message):
+    """
+    Extracts ticket IDs (e.g., JIRA-123, PROJ-456) from a commit message string.
+
+    Args:
+        commit_message (str): The commit message string to search within.
+
+    Returns:
+        list: A list of strings, where each string is a found ticket ID.
+              Returns an empty list if no ticket IDs are found.
+    """
+    # Regex to find patterns like 'PROJ-123': one or more uppercase letters,
+    # a hyphen, and one or more digits.
+    pattern = r'[A-Z]+-\d+'
+    
+    # re.findall returns all non-overlapping matches of the pattern in the string
+    # as a list of strings.
+    return re.findall(pattern, commit_message)

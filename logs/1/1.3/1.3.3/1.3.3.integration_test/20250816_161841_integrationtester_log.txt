@@ -1,0 +1,228 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T16:18:41.298953
+Task: Integration test for: Code Embedding and Vector Storage
+
+Output:
+import unittest
+import os
+import tempfile
+import shutil
+import numpy as np
+import json
+from typing import List, Dict, Any
+
+# --- Implementation from SUBTASK 1.3.3.2 ---
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+def generate_embeddings(texts: list[str]) -> np.ndarray:
+    """
+    Generates embeddings for a list of code chunks or commit messages.
+
+    This function takes a list of strings as input and uses a pre-trained
+    sentence-transformer model to convert them into a numpy array of
+    numerical embeddings.
+
+    Args:
+        texts: A list of strings to be embedded.
+
+    Returns:
+        A numpy.ndarray of shape (n, 384), where n is the number of
+        input texts and 384 is the embedding dimension. Returns an
+        array with shape (0, 384) if the input list is empty.
+    """
+    if not texts:
+        # Return an empty array with the correct embedding dimension.
+        return np.empty((0, model.get_sentence_embedding_dimension()))
+
+    # The encode method efficiently processes the list of texts in batches.
+    embeddings = model.encode(texts)
+    return embeddings
+
+# --- Implementation from SUBTASK 1.3.3.3 ---
+def store_embeddings_with_metadata(
+    embeddings: np.ndarray,
+    metadata: List[Dict[str, Any]],
+    embedding_path: str,
+    metadata_path: str
+) -> None:
+    """
+    Stores embeddings and their associated metadata to separate files.
+
+    This function saves the numerical embeddings to a .npy file for efficient
+    storage and retrieval, and the corresponding metadata to a human-readable
+    .json file. It ensures that the number of embeddings matches the number
+    of metadata records and creates the necessary directories if they don't exist.
+
+    Args:
+        embeddings: A numpy.ndarray of shape (n, d), where n is the number
+                    of items and d is the embedding dimension.
+        metadata: A list of n dictionaries, where each dictionary contains
+                  the metadata for the corresponding embedding.
+        embedding_path: The file path to save the embeddings (e.g., 'data/embeddings.npy').
+        metadata_path: The file path to save the metadata (e.g., 'data/metadata.json').
+
+    Raises:
+        ValueError: If the number of embeddings does not match the number of
+                    metadata entries.
+    """
+    if len(embeddings) != len(metadata):
+        raise ValueError(
+            f"Mismatch between number of embeddings ({len(embeddings)}) and "
+            f"metadata entries ({len(metadata)})."
+        )
+
+    # Ensure parent directories exist for the output files
+    for path in [embedding_path, metadata_path]:
+        parent_dir = os.path.dirname(path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+    # Save the embeddings array to a binary file in .npy format
+    np.save(embedding_path, embeddings)
+
+    # Save the metadata list to a JSON file
+    with open(metadata_path, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, indent=4)
+
+
+class TestEmbeddingAndStorageIntegration(unittest.TestCase):
+    """
+    Integration test for the code embedding generation and storage pipeline.
+    """
+
+    def setUp(self):
+        """Create a temporary directory for test artifacts before each test."""
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Remove the temporary directory and its contents after each test."""
+        shutil.rmtree(self.test_dir)
+
+    def test_full_pipeline_with_valid_data(self):
+        """
+        Tests the complete workflow: generating embeddings from texts and
+        storing them with corresponding metadata.
+        """
+        # 1. Define realistic input data
+        texts_to_embed = [
+            "def calculate_sum(a, b):\n    return a + b",
+            "class User:\n    def __init__(self, name):\n        self.name = name",
+            "feat: Add user authentication endpoint"
+        ]
+        corresponding_metadata = [
+            {"file_path": "utils/math.py", "identifier": "calculate_sum", "type": "function"},
+            {"file_path": "models/user.py", "identifier": "User", "type": "class"},
+            {"file_path": None, "identifier": "commit_msg", "type": "commit"}
+        ]
+
+        # 2. Execute the first part of the pipeline: generate embeddings
+        embeddings = generate_embeddings(texts_to_embed)
+
+        # 3. Assertions for the embedding generation step
+        self.assertIsInstance(embeddings, np.ndarray)
+        self.assertEqual(embeddings.shape[0], len(texts_to_embed))
+        self.assertEqual(embeddings.shape[1], 384)  # Specific to 'all-MiniLM-L6-v2'
+
+        # 4. Define output paths and execute the second part: storage
+        embedding_file = os.path.join(self.test_dir, "data", "code_embeddings.npy")
+        metadata_file = os.path.join(self.test_dir, "data", "code_metadata.json")
+        store_embeddings_with_metadata(
+            embeddings,
+            corresponding_metadata,
+            embedding_file,
+            metadata_file
+        )
+
+        # 5. Verify the results of the storage step
+        # Check that files and directories were created
+        self.assertTrue(os.path.isdir(os.path.join(self.test_dir, "data")))
+        self.assertTrue(os.path.exists(embedding_file))
+        self.assertTrue(os.path.exists(metadata_file))
+
+        # Load data from files and verify their contents
+        loaded_embeddings = np.load(embedding_file)
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            loaded_metadata = json.load(f)
+
+        np.testing.assert_array_equal(loaded_embeddings, embeddings)
+        self.assertEqual(loaded_metadata, corresponding_metadata)
+
+    def test_full_pipeline_with_empty_data(self):
+        """
+        Tests that the pipeline correctly handles empty inputs, resulting
+        in empty but valid output files.
+        """
+        # 1. Define empty input data
+        texts_to_embed = []
+        corresponding_metadata = []
+
+        # 2. Generate embeddings for empty list
+        embeddings = generate_embeddings(texts_to_embed)
+
+        # 3. Assert correct shape for empty embeddings
+        self.assertIsInstance(embeddings, np.ndarray)
+        self.assertEqual(embeddings.shape, (0, 384))
+
+        # 4. Store the empty data
+        embedding_file = os.path.join(self.test_dir, "empty.npy")
+        metadata_file = os.path.join(self.test_dir, "empty.json")
+        store_embeddings_with_metadata(
+            embeddings,
+            corresponding_metadata,
+            embedding_file,
+            metadata_file
+        )
+
+        # 5. Verify that empty files are created correctly
+        self.assertTrue(os.path.exists(embedding_file))
+        self.assertTrue(os.path.exists(metadata_file))
+
+        loaded_embeddings = np.load(embedding_file)
+        with open(metadata_file, 'r', encoding='utf-8') as f:
+            loaded_metadata = json.load(f)
+
+        self.assertEqual(loaded_embeddings.shape, (0, 384))
+        self.assertEqual(loaded_metadata, [])
+
+    def test_pipeline_fails_with_mismatched_data(self):
+        """
+        Tests that the storage function raises a ValueError when the number
+        of embeddings and metadata entries do not match.
+        """
+        # 1. Define mismatched input data
+        texts_to_embed = ["text one", "text two"]
+        mismatched_metadata = [{"id": 1}]  # Only one metadata entry for two texts
+
+        # 2. Generate embeddings
+        embeddings = generate_embeddings(texts_to_embed)
+        self.assertEqual(len(embeddings), 2)
+        self.assertEqual(len(mismatched_metadata), 1)
+
+        # 3. Define output paths
+        embedding_file = os.path.join(self.test_dir, "mismatch.npy")
+        metadata_file = os.path.join(self.test_dir, "mismatch.json")
+
+        # 4. Assert that calling the storage function raises a ValueError
+        with self.assertRaises(ValueError) as context:
+            store_embeddings_with_metadata(
+                embeddings,
+                mismatched_metadata,
+                embedding_file,
+                metadata_file
+            )
+
+        # Check the error message for clarity
+        expected_msg = "Mismatch between number of embeddings (2) and metadata entries (1)."
+        self.assertEqual(str(context.exception), expected_msg)
+
+        # 5. Verify that no files were created upon failure
+        self.assertFalse(os.path.exists(embedding_file))
+        self.assertFalse(os.path.exists(metadata_file))
+
+if __name__ == '__main__':
+    unittest.main()
+
+==================================================

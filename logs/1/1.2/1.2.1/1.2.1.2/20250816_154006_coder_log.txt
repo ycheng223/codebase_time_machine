@@ -1,0 +1,34 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T15:40:06.245229
+Task: Implement an AST parser for a primary language (e.g., Python, TypeScript)
+
+Output:
+import ast
+
+def parse_python_code_to_ast(source_code: str):
+    """
+    Parses a string of Python source code into an Abstract Syntax Tree (AST).
+
+    This function leverages Python's built-in 'ast' module to perform the parsing.
+    It is a simple wrapper that includes error handling for invalid syntax.
+
+    Args:
+        source_code: A string containing the Python code to be parsed.
+
+    Returns:
+        An 'ast.Module' object representing the root of the AST if the parsing
+        is successful. Returns None if the source code contains a syntax error.
+    """
+    try:
+        # The ast.parse() function is the core component that builds the tree.
+        # It takes the source string and returns the root node of the AST.
+        tree = ast.parse(source_code)
+        return tree
+    except SyntaxError as e:
+        # If the source code is not syntactically correct Python,
+        # ast.parse() raises a SyntaxError. We catch it here.
+        print(f"Error: Invalid syntax in the provided code. Details: {e}")
+        return None
+
+==================================================

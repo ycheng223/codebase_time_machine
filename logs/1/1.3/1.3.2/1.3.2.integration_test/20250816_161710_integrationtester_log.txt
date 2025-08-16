@@ -1,0 +1,349 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T16:17:10.591833
+Task: Integration test for: Semantic Diffing Module
+
+Output:
+import unittest
+import ast
+
+# Implementation from Subtask 1.3.2.2 to be tested
+
+class _CodeStructureVisitor(ast.NodeVisitor):
+    """
+    An AST visitor that extracts a structured representation of classes,
+    methods, and functions from a Python code string.
+    """
+    def __init__(self):
+        self.structure = {"_GLOBAL_": {}}
+        self._current_class_name = None
+
+    def visit_ClassDef(self, node):
+        self._current_class_name = node.name
+        self.structure[node.name] = {}
+        self.generic_visit(node)
+        self._current_class_name = None
+
+    def _process_function(self, node):
+        params = [arg.arg for arg in node.args.args]
+        signature = {"params": params, "lineno": node.lineno}
+
+        if self._current_class_name:
+            self.structure[self._current_class_name][node.name] = signature
+        else:
+            self.structure["_GLOBAL_"][node.name] = signature
+
+    def visit_FunctionDef(self, node):
+        self._process_function(node)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        self._process_function(node)
+        self.generic_visit(node)
+
+def _get_code_structure(code_string):
+    """
+    Parses a string of Python code and returns its structure.
+    Returns None if the code has a syntax error.
+    """
+    try:
+        tree = ast.parse(code_string)
+        visitor = _CodeStructureVisitor()
+        visitor.visit(tree)
+        return visitor.structure
+    except SyntaxError:
+        return None
+
+def identify_semantic_changes(code_before, code_after):
+    """
+    Identifies semantic changes between two Python code snippets.
+
+    This function parses two versions of Python code into Abstract Syntax Trees
+    (ASTs) and compares their structures to identify changes such as added,
+    removed, or modified classes, methods, and functions. A change in a
+    function or method's signature is detected by comparing its parameter list.
+    Class and function renames are reported as a removal and an addition.
+
+    Args:
+        code_before (str): The original source code string.
+        code_after (str): The modified source code string.
+
+    Returns:
+        list[str]: A list of human-readable strings describing the detected
+                   semantic changes. Returns an error message if parsing fails.
+    """
+    changes = []
+    
+    struct_before = _get_code_structure(code_before)
+    struct_after = _get_code_structure(code_after)
+
+    if struct_before is None or struct_after is None:
+        return ["Error: Could not parse one or both code snippets due to a syntax error."]
+
+    # Compare Classes
+    before_classes = set(struct_before.keys()) - {"_GLOBAL_"}
+    after_classes = set(struct_after.keys()) - {"_GLOBAL_"}
+
+    for class_name in sorted(before_classes - after_classes):
+        changes.append(f"REMOVED: Class '{class_name}' was removed.")
+        
+    for class_name in sorted(after_classes - before_classes):
+        changes.append(f"ADDED: Class '{class_name}' was added.")
+        
+    # Compare Methods in common classes
+    for class_name in sorted(before_classes & after_classes):
+        before_methods = set(struct_before[class_name].keys())
+        after_methods = set(struct_after[class_name].keys())
+
+        for method_name in sorted(before_methods - after_methods):
+            changes.append(f"REMOVED: Method '{method_name}' from class '{class_name}' was removed.")
+            
+        for method_name in sorted(after_methods - before_methods):
+            changes.append(f"ADDED: Method '{method_name}' to class '{class_name}' was added.")
+            
+        for method_name in sorted(before_methods & after_methods):
+            sig_before = struct_before[class_name][method_name]["params"]
+            sig_after = struct_after[class_name][method_name]["params"]
+            if sig_before != sig_after:
+                changes.append(
+                    f"MODIFIED: Signature of method '{method_name}' in class '{class_name}' changed from {sig_before} to {sig_after}."
+                )
+
+    # Compare Global Functions
+    before_globals = set(struct_before["_GLOBAL_"].keys())
+    after_globals = set(struct_after["_GLOBAL_"].keys())
+
+    for func_name in sorted(before_globals - after_globals):
+        changes.append(f"REMOVED: Global function '{func_name}' was removed.")
+        
+    for func_name in sorted(after_globals - before_globals):
+        changes.append(f"ADDED: Global function '{func_name}' was added.")
+        
+    for func_name in sorted(before_globals & after_globals):
+        sig_before = struct_before["_GLOBAL_"][func_name]["params"]
+        sig_after = struct_after["_GLOBAL_"][func_name]["params"]
+        if sig_before != sig_after:
+            changes.append(
+                f"MODIFIED: Signature of global function '{func_name}' changed from {sig_before} to {sig_after}."
+            )
+            
+    return changes
+
+
+# Integration Test Suite
+
+class TestSemanticDiffIntegration(unittest.TestCase):
+    """
+    Integration tests for the semantic diffing module, testing the interaction
+    between the AST visitor, structure extraction, and change identification.
+    """
+
+    def test_no_changes(self):
+        """Tests that identical code snippets produce no changes."""
+        code = """
+class MyClass:
+    def method(self, arg1):
+        pass
+
+def my_function():
+    return True
+"""
+        changes = identify_semantic_changes(code, code)
+        self.assertEqual(changes, [])
+
+    def test_non_semantic_changes(self):
+        """Tests that changes in comments, docstrings, or implementation details are ignored."""
+        code_before = """
+# A function
+def process_data(data):
+    # Process the data
+    processed = data + 1
+    return processed
+"""
+        code_after = """
+def process_data(data):
+    \"\"\"This function processes some data.\"\"\"
+    # A different implementation
+    result = data + 1
+    return result
+"""
+        changes = identify_semantic_changes(code_before, code_after)
+        self.assertEqual(changes, [])
+
+    def test_add_and_remove_global_function(self):
+        """Tests the addition and removal of a global function."""
+        code_before = "def old_func(): pass"
+        code_after = "def new_func(): pass"
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = [
+            "ADDED: Global function 'new_func' was added.",
+            "REMOVED: Global function 'old_func' was removed.",
+        ]
+        self.assertEqual(changes, expected)
+
+    def test_modify_global_function_signature(self):
+        """Tests the modification of a global function's signature."""
+        code_before = "def my_func(a, b): pass"
+        code_after = "def my_func(a, b, c=None): pass"
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = [
+            "MODIFIED: Signature of global function 'my_func' changed from ['a', 'b'] to ['a', 'b', 'c']."
+        ]
+        self.assertEqual(changes, expected)
+
+    def test_add_and_remove_class(self):
+        """Tests the detection of class addition and removal (simulating a rename)."""
+        code_before = "class OldLogger: pass"
+        code_after = "class NewLogger: pass"
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = [
+            "REMOVED: Class 'OldLogger' was removed.",
+            "ADDED: Class 'NewLogger' was added.",
+        ]
+        # The implementation's order is remove then add, based on sorting.
+        self.assertEqual(changes, expected)
+
+    def test_add_method_to_class(self):
+        """Tests adding a new method to an existing class."""
+        code_before = """
+class MyAPI:
+    def connect(self):
+        pass
+"""
+        code_after = """
+class MyAPI:
+    def connect(self):
+        pass
+    def disconnect(self):
+        pass
+"""
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = ["ADDED: Method 'disconnect' to class 'MyAPI' was added."]
+        self.assertEqual(changes, expected)
+
+    def test_remove_method_from_class(self):
+        """Tests removing a method from an existing class."""
+        code_before = """
+class User:
+    def get_name(self): pass
+    def get_id(self): pass
+"""
+        code_after = """
+class User:
+    def get_name(self): pass
+"""
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = ["REMOVED: Method 'get_id' from class 'User' was removed."]
+        self.assertEqual(changes, expected)
+
+    def test_modify_method_signature(self):
+        """Tests modifying the signature of a method within a class."""
+        code_before = """
+class DataProcessor:
+    def process(self, data):
+        pass
+"""
+        code_after = """
+class DataProcessor:
+    def process(self, data, options):
+        pass
+"""
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = [
+            "MODIFIED: Signature of method 'process' in class 'DataProcessor' changed from ['self', 'data'] to ['self', 'data', 'options']."
+        ]
+        self.assertEqual(changes, expected)
+
+    def test_async_function_and_method_changes(self):
+        """Tests changes related to async functions and methods."""
+        code_before = """
+async def fetch_data():
+    pass
+
+class WebHandler:
+    async def handle_request(self, req):
+        pass
+"""
+        code_after = """
+async def fetch_data(url): # Modified signature
+    pass
+
+class WebHandler:
+    async def handle_request(self, req, res): # Modified signature
+        pass
+    async def close_connection(self): # Added method
+        pass
+"""
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = [
+            "ADDED: Method 'close_connection' to class 'WebHandler' was added.",
+            "MODIFIED: Signature of method 'handle_request' in class 'WebHandler' changed from ['self', 'req'] to ['self', 'req', 'res'].",
+            "MODIFIED: Signature of global function 'fetch_data' changed from [] to ['url']."
+        ]
+        self.assertEqual(changes, expected)
+
+    def test_multiple_complex_changes(self):
+        """Tests a combination of various semantic changes at once."""
+        code_before = """
+class OldCache:
+    def get(self, key): pass
+
+def utility_one(): pass
+def utility_two(arg): pass
+"""
+        code_after = """
+class NewCache: # Renamed class
+    def get(self, key, default=None): pass # Modified signature
+    def set(self, key, value): pass # Added method
+
+# utility_one was removed
+def utility_two(): pass # Modified signature
+def utility_three(): pass # Added function
+"""
+        changes = identify_semantic_changes(code_before, code_after)
+        # Order is deterministic: class remove, class add, global remove, global add, global modify
+        expected = [
+            "REMOVED: Class 'OldCache' was removed.",
+            "ADDED: Class 'NewCache' was added.",
+            "REMOVED: Global function 'utility_one' was removed.",
+            "ADDED: Global function 'utility_three' was added.",
+            "MODIFIED: Signature of global function 'utility_two' changed from ['arg'] to []."
+        ]
+        self.assertEqual(changes, expected)
+        
+    def test_syntax_error_in_before_code(self):
+        """Tests that a syntax error in the 'before' code is handled gracefully."""
+        code_before = "def my_func(a,:"
+        code_after = "def my_func(a): pass"
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = ["Error: Could not parse one or both code snippets due to a syntax error."]
+        self.assertEqual(changes, expected)
+        
+    def test_syntax_error_in_after_code(self):
+        """Tests that a syntax error in the 'after' code is handled gracefully."""
+        code_before = "def my_func(a): pass"
+        code_after = "def my_func(a,:"
+        changes = identify_semantic_changes(code_before, code_after)
+        expected = ["Error: Could not parse one or both code snippets due to a syntax error."]
+        self.assertEqual(changes, expected)
+
+    def test_empty_and_whitespace_code(self):
+        """Tests that empty or whitespace-only code produces no changes."""
+        changes = identify_semantic_changes("", "")
+        self.assertEqual(changes, [])
+        
+        changes = identify_semantic_changes("  \n# comment\n  ", "")
+        self.assertEqual(changes, [])
+
+        changes = identify_semantic_changes("def f(): pass", "")
+        expected = ["REMOVED: Global function 'f' was removed."]
+        self.assertEqual(changes, expected)
+
+        changes = identify_semantic_changes("", "def g(): pass")
+        expected = ["ADDED: Global function 'g' was added."]
+        self.assertEqual(changes, expected)
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+==================================================

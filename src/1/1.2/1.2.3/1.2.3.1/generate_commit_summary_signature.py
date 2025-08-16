@@ -1,0 +1,1 @@
+def generate_commit_summary(diff_text: str, commit_message: str) -> str:

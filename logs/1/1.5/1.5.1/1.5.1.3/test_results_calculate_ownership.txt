@@ -1,0 +1,2 @@
+Tests for 'calculate_ownership' passed!
+All 8 tests completed successfully.

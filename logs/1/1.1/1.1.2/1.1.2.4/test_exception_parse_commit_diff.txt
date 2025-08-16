@@ -1,0 +1,3 @@
+Exception during testing: No module named 'git'
+Function: parse_commit_diff
+Task: Write unit tests for commit traversal (handles initial commit, merge commits, etc.)

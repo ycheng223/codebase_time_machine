@@ -1,0 +1,48 @@
+import os
+import openai
+
+def get_llm_response(prompt: str, model: str = "gpt-3.5-turbo") -> str:
+    """
+    Sends a prompt to the OpenAI API and returns the LLM's response.
+
+    This function requires the 'openai' library to be installed and the
+    OPENAI_API_KEY environment variable to be set.
+
+    Args:
+        prompt (str): The user's input/question for the LLM.
+        model (str, optional): The model to use for the completion.
+                               Defaults to "gpt-3.5-turbo".
+
+    Returns:
+        str: The text content of the LLM's response.
+
+    Raises:
+        ValueError: If the OPENAI_API_KEY environment variable is not set.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY environment variable not set.")
+
+    try:
+        # Initialize the client with the API key
+        client = openai.OpenAI(api_key=api_key)
+
+        # Create the API request
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            model=model,
+        )
+
+        # Extract and return the response content
+        response_content = chat_completion.choices[0].message.content
+        return response_content.strip() if response_content else ""
+
+    except Exception as e:
+        # Handle potential API errors or other exceptions
+        print(f"An error occurred while communicating with the API: {e}")
+        return "Error: Could not retrieve a response from the LLM."

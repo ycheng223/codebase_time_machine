@@ -1,0 +1,112 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T16:26:15.338006
+Task: Implement backend API using a web framework (e.g., FastAPI, Express)
+
+Output:
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Optional
+
+# --- Pydantic Models for Data Validation ---
+
+class Item(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    price: float
+
+class ItemCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    price: float
+
+# --- FastAPI App Initialization ---
+
+app = FastAPI(
+    title="Simple Items API",
+    description="A basic CRUD API for managing items.",
+    version="1.0.0",
+)
+
+# --- In-memory "Database" ---
+
+# A simple list to act as our data store
+db: List[Item] = [
+    Item(id=1, name="Laptop", description="A powerful computing device", price=1200.50),
+    Item(id=2, name="Keyboard", description="A mechanical keyboard", price=75.99),
+    Item(id=3, name="Mouse", description="An ergonomic wireless mouse", price=25.00),
+]
+# A simple counter for generating unique IDs
+next_id = 4
+
+
+# --- API Endpoints (Routes) ---
+
+@app.get("/", tags=["Root"])
+def read_root():
+    """
+    A simple root endpoint to confirm the API is running.
+    """
+    return {"message": "Welcome to the Simple Items API!"}
+
+@app.post("/items/", response_model=Item, status_code=201, tags=["Items"])
+def create_item(item_create: ItemCreate):
+    """
+    Create a new item and add it to the database.
+    """
+    global next_id
+    # Create a new item instance with a unique ID
+    new_item = Item(id=next_id, **item_create.dict())
+    db.append(new_item)
+    next_id += 1
+    return new_item
+
+@app.get("/items/", response_model=List[Item], tags=["Items"])
+def read_items():
+    """
+    Retrieve a list of all items in the database.
+    """
+    return db
+
+@app.get("/items/{item_id}", response_model=Item, tags=["Items"])
+def read_item(item_id: int):
+    """
+    Retrieve a single item by its ID.
+    """
+    # Find the item with the matching ID
+    item = next((item for item in db if item.id == item_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+@app.put("/items/{item_id}", response_model=Item, tags=["Items"])
+def update_item(item_id: int, item_update: ItemCreate):
+    """
+    Update an existing item's details by its ID.
+    """
+    for i, item in enumerate(db):
+        if item.id == item_id:
+            # Create the updated item object
+            updated_item = Item(id=item_id, **item_update.dict())
+            # Replace the old item in the database
+            db[i] = updated_item
+            return updated_item
+    # If the loop finishes without finding the item, raise a 404 error
+    raise HTTPException(status_code=404, detail="Item not found")
+
+@app.delete("/items/{item_id}", response_model=dict, tags=["Items"])
+def delete_item(item_id: int):
+    """
+    Delete an item from the database by its ID.
+    """
+    global db
+    initial_len = len(db)
+    # Recreate the database list without the item to be deleted
+    db = [item for item in db if item.id != item_id]
+    # If the length of the list hasn't changed, the item was not found
+    if len(db) == initial_len:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"message": "Item deleted successfully"}
+
+==================================================

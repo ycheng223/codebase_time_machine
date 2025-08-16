@@ -1,0 +1,135 @@
+import unittest
+
+# --- Implementation of the Code Ownership Analysis Module ---
+# This is the component being tested, as provided in the subtask contexts.
+
+def calculate_ownership(change_history):
+    """
+    Calculates code ownership based on lines changed and author frequency.
+
+    Args:
+        change_history (list of dict): A list where each dictionary represents
+                                      a change and must contain 'author',
+                                      'lines_added', and 'lines_deleted' keys.
+                                      Example: [{'author': 'dev1', 'lines_added': 10, 'lines_deleted': 2}]
+
+    Returns:
+        dict: A dictionary where keys are author names and values are another
+              dictionary containing the total 'lines_changed' and the
+              'commit_count' (author frequency).
+              Example: {'dev1': {'lines_changed': 12, 'commit_count': 1}}
+    """
+    ownership_data = {}
+
+    for change in change_history:
+        author = change.get('author')
+        if not author:
+            continue
+
+        # Ensure author is in the dictionary
+        if author not in ownership_data:
+            ownership_data[author] = {
+                'lines_changed': 0,
+                'commit_count': 0
+            }
+
+        # Calculate lines changed for this specific commit
+        lines_changed = change.get('lines_added', 0) + change.get('lines_deleted', 0)
+
+        # Update the author's totals
+        ownership_data[author]['lines_changed'] += lines_changed
+        ownership_data[author]['commit_count'] += 1
+
+    return ownership_data
+
+# --- Integration Test for the Code Ownership Analysis Module ---
+
+class TestCodeOwnershipAnalysisModuleIntegration(unittest.TestCase):
+
+    def test_full_project_history_scenario(self):
+        """
+        An integration test for the Code Ownership Analysis Module.
+
+        This test simulates a realistic, complex change history for a project,
+        representing the kind of raw data the module would process in a real-world
+        scenario. It verifies that the `calculate_ownership` function correctly
+        aggregates data across multiple authors, handles various commit types
+        (additions, deletions, mixed), and gracefully ignores malformed data entries
+        to produce a comprehensive and accurate ownership report.
+        """
+        # A mock change history representing a series of commits over time from a VCS.
+        # This dataset is designed to test the module's behavior in an integrated setting.
+        mock_project_history = [
+            # Initial project setup by 'dev_lead'
+            {'author': 'dev_lead', 'lines_added': 1500, 'lines_deleted': 20},
+
+            # 'feature_dev_1' adds a new feature
+            {'author': 'feature_dev_1', 'lines_added': 800, 'lines_deleted': 50},
+            {'author': 'feature_dev_1', 'lines_added': 250, 'lines_deleted': 15},
+
+            # 'dev_lead' refactors some of the initial code
+            {'author': 'dev_lead', 'lines_added': 100, 'lines_deleted': 300},
+
+            # A bug fix from a new contributor, 'bug_fixer'
+            {'author': 'bug_fixer', 'lines_added': 5, 'lines_deleted': 2},
+
+            # Malformed or irrelevant data that should be ignored by the module
+            {'lines_added': 10, 'lines_deleted': 10},  # Commit with missing author
+            {'author': None, 'lines_added': 5, 'lines_deleted': 5},  # Commit with null author
+            {'author': '', 'lines_added': 2, 'lines_deleted': 2}, # Commit with empty string author
+
+            # 'feature_dev_1' makes a small correction
+            {'author': 'feature_dev_1', 'lines_added': 10, 'lines_deleted': 10},
+
+            # A commit with no line changes (e.g., a merge commit or formatting only)
+            {'author': 'dev_lead', 'lines_added': 0, 'lines_deleted': 0},
+
+            # A commit record that is missing line change data
+            {'author': 'bug_fixer'},
+
+            # Final large contribution from 'feature_dev_1'
+            {'author': 'feature_dev_1', 'lines_added': 1200, 'lines_deleted': 400},
+        ]
+
+        # The expected final ownership report, calculated manually from the history above.
+        # This represents the "ground truth" for the integration test.
+        # - dev_lead:
+        #   - Commit 1: 1500 + 20 = 1520
+        #   - Commit 2: 100 + 300 = 400
+        #   - Commit 3: 0 + 0 = 0
+        #   - Total Lines: 1920, Total Commits: 3
+        # - feature_dev_1:
+        #   - Commit 1: 800 + 50 = 850
+        #   - Commit 2: 250 + 15 = 265
+        #   - Commit 3: 10 + 10 = 20
+        #   - Commit 4: 1200 + 400 = 1600
+        #   - Total Lines: 2735, Total Commits: 4
+        # - bug_fixer:
+        #   - Commit 1: 5 + 2 = 7
+        #   - Commit 2: 0 + 0 = 0 (missing line keys)
+        #   - Total Lines: 7, Total Commits: 2
+        expected_ownership_report = {
+            'dev_lead': {
+                'lines_changed': 1920,
+                'commit_count': 3
+            },
+            'feature_dev_1': {
+                'lines_changed': 2735,
+                'commit_count': 4
+            },
+            'bug_fixer': {
+                'lines_changed': 7,
+                'commit_count': 2
+            }
+        }
+
+        # Execute the module's core functionality with the test data
+        actual_ownership_report = calculate_ownership(mock_project_history)
+
+        # Verify that the generated report matches the expected outcome.
+        # We use assertDictEqual for a comprehensive comparison of the dictionaries.
+        self.assertDictEqual(actual_ownership_report, expected_ownership_report)
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

@@ -1,0 +1,3 @@
+Exception during testing: No module named 'git'
+Function: clone_repository
+Task: Write unit tests for cloning and updating repositories

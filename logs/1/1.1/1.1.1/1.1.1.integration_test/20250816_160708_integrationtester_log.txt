@@ -1,0 +1,228 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T16:07:08.152420
+Task: Integration test for: Initialize Project Repository
+
+Output:
+import unittest
+import tempfile
+import shutil
+import os
+import subprocess
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+# --- Start: Hypothetical Implementations to be Tested ---
+# In a real-world scenario, these classes would be in a separate module
+# (e.g., 'project_initializer.py') and imported here. For this self-contained
+# test, they are included directly.
+
+class RepositoryInitializationError(Exception):
+    """Custom exception for repository initialization failures."""
+    pass
+
+class GitManager:
+    """Handles Git-related operations by calling the git command."""
+    def __init__(self, repo_path: Path):
+        self.repo_path = repo_path
+
+    def run_git_command(self, command: list[str]) -> str:
+        """Executes a Git command in the repository path."""
+        try:
+            result = subprocess.run(
+                ['git'] + command,
+                cwd=self.repo_path,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding='utf-8'
+            )
+            return result.stdout.strip()
+        except FileNotFoundError:
+            raise RepositoryInitializationError("Git command not found. Is Git installed and in your PATH?")
+        except subprocess.CalledProcessError as e:
+            raise RepositoryInitializationError(f"Git command failed with error: {e.stderr}")
+
+    def init(self) -> str:
+        """Initializes a new Git repository."""
+        return self.run_git_command(['init'])
+
+    def is_repository(self) -> bool:
+        """Checks if the path is a valid Git repository."""
+        return (self.repo_path / '.git').is_dir()
+
+class ProjectStructureCreator:
+    """Handles the creation of the project's directory structure and initial files."""
+    def __init__(self, base_path: Path):
+        self.base_path = base_path
+
+    def create_structure(self) -> None:
+        """Creates a standard project structure."""
+        if self.base_path.exists() and any(self.base_path.iterdir()):
+            raise FileExistsError(f"Target directory '{self.base_path}' already exists and is not empty.")
+        
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        
+        src_dir = self.base_path / "src"
+        src_dir.mkdir()
+        
+        (src_dir / "__init__.py").touch()
+        (self.base_path / "README.md").write_text(f"# {self.base_path.name}\n")
+        
+        gitignore_content = "__pycache__/\n.venv/\n"
+        (self.base_path / ".gitignore").write_text(gitignore_content)
+
+class ProjectInitializer:
+    """Orchestrates the entire project initialization process."""
+    def __init__(self, base_dir: str, project_name: str):
+        self.project_path = Path(base_dir) / project_name
+        self.structure_creator = ProjectStructureCreator(self.project_path)
+        self.git_manager = GitManager(self.project_path)
+
+    def initialize(self, with_git: bool = True) -> str:
+        """
+        Initializes the project.
+        1. Creates the directory structure and files.
+        2. Optionally initializes a Git repository.
+        Returns the path to the created project.
+        """
+        self.structure_creator.create_structure()
+        
+        if with_git:
+            self.git_manager.init()
+            
+        return str(self.project_path)
+
+# --- End: Hypothetical Implementations ---
+
+
+class TestProjectInitializationIntegration(unittest.TestCase):
+    """
+    Integration test for the 'Initialize Project Repository' task.
+    This test verifies that the ProjectInitializer correctly coordinates the
+    ProjectStructureCreator and GitManager to set up a new project directory.
+    """
+
+    def setUp(self):
+        """Set up a temporary directory for test artifacts."""
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Clean up the temporary directory after tests."""
+        shutil.rmtree(self.temp_dir)
+
+    def test_initialize_project_with_git_repository(self):
+        """
+        Tests the primary success scenario: creating a project with a file
+        structure and initializing a Git repository.
+        """
+        project_name = "my-new-app"
+        initializer = ProjectInitializer(self.temp_dir, project_name)
+        
+        # Action
+        project_path_str = initializer.initialize(with_git=True)
+        project_path = Path(project_path_str)
+
+        # Assertions
+        # 1. Verify the main project directory was created
+        self.assertTrue(project_path.is_dir())
+        self.assertEqual(project_path.name, project_name)
+
+        # 2. Verify the file and directory structure created by ProjectStructureCreator
+        self.assertTrue((project_path / "src").is_dir())
+        self.assertTrue((project_path / "src" / "__init__.py").is_file())
+        self.assertTrue((project_path / "README.md").is_file())
+        self.assertTrue((project_path / ".gitignore").is_file())
+
+        # 3. Verify content of a created file
+        with open(project_path / "README.md", "r") as f:
+            content = f.read()
+        self.assertIn(f"# {project_name}", content)
+
+        # 4. Verify the Git repository was initialized by GitManager
+        self.assertTrue((project_path / ".git").is_dir())
+
+    def test_initialize_project_without_git_repository(self):
+        """
+        Tests the scenario where project creation is requested without
+        Git initialization.
+        """
+        project_name = "data-analysis-project"
+        initializer = ProjectInitializer(self.temp_dir, project_name)
+
+        # Action
+        project_path_str = initializer.initialize(with_git=False)
+        project_path = Path(project_path_str)
+
+        # Assertions
+        # 1. Verify file structure exists
+        self.assertTrue(project_path.is_dir())
+        self.assertTrue((project_path / "src").is_dir())
+        self.assertTrue((project_path / "README.md").is_file())
+
+        # 2. Verify Git repository was NOT initialized
+        self.assertFalse((project_path / ".git").exists())
+
+    def test_initialization_fails_if_directory_is_not_empty(self):
+        """
+        Tests that the initialization process fails as expected if the
+        target directory already exists and contains files.
+        """
+        project_name = "existing-project"
+        target_dir = Path(self.temp_dir) / project_name
+        target_dir.mkdir()
+        (target_dir / "some-file.txt").touch()
+
+        initializer = ProjectInitializer(self.temp_dir, project_name)
+
+        # Action & Assertion
+        # Verify that the correct exception is raised by ProjectStructureCreator
+        # and propagated up through the ProjectInitializer.
+        with self.assertRaises(FileExistsError) as cm:
+            initializer.initialize()
+        
+        self.assertIn("already exists and is not empty", str(cm.exception))
+
+    @patch('project_initializer.subprocess.run')
+    def test_initialization_fails_if_git_init_fails(self, mock_subprocess_run):
+        """
+        Tests the failure scenario where the file structure is created
+        but the external 'git init' command fails.
+        """
+        project_name = "git-fail-project"
+        
+        # Configure the mock to simulate a failed subprocess call
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+            returncode=128,
+            cmd=['git', 'init'],
+            stderr="fatal: could not create work tree dir"
+        )
+        
+        initializer = ProjectInitializer(self.temp_dir, project_name)
+
+        # Action & Assertion
+        # Verify that RepositoryInitializationError is raised from GitManager
+        with self.assertRaises(RepositoryInitializationError) as cm:
+            initializer.initialize(with_git=True)
+            
+        self.assertIn("Git command failed", str(cm.exception))
+
+        # Further assertions: The file structure should still exist, as it
+        # was created before the failed Git command was called.
+        project_path = Path(self.temp_dir) / project_name
+        self.assertTrue(project_path.is_dir())
+        self.assertTrue((project_path / "README.md").is_file())
+        
+        # But the .git directory should not exist
+        self.assertFalse((project_path / ".git").exists())
+
+
+if __name__ == '__main__':
+    # To make the test runnable, we need to alias the module name
+    # since the classes are in the same file.
+    import sys
+    # This allows @patch('project_initializer.subprocess.run') to work correctly.
+    sys.modules['project_initializer'] = sys.modules['__main__']
+    unittest.main()
+
+==================================================

@@ -1,0 +1,28 @@
+import git
+
+def iterate_commits_from_head(repo_path='.'):
+    """
+    Creates a generator to iterate through all commits from HEAD backwards.
+
+    This function opens a Git repository at the specified path and yields
+    each commit object, starting from the current HEAD and traversing
+    the commit history.
+
+    Args:
+        repo_path (str): The path to the git repository. Defaults to the
+                         current working directory.
+
+    Yields:
+        git.Commit: The next commit object in the history.
+    
+    Raises:
+        git.exc.InvalidGitRepositoryError: If the given path is not a valid
+                                           git repository.
+        git.exc.NoSuchPathError: If the given path does not exist.
+    """
+    repo = git.Repo(repo_path, search_parent_directories=True)
+    
+    # repo.iter_commits() starts from the given revision (or HEAD by default)
+    # and walks backwards through the parent commits.
+    for commit in repo.iter_commits('HEAD'):
+        yield commit

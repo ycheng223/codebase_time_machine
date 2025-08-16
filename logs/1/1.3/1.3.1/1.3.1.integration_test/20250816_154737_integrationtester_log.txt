@@ -1,0 +1,319 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T15:47:37.729763
+Task: Integration test for: Vector Database Setup
+
+Output:
+import unittest
+import os
+import tempfile
+import shutil
+import numpy as np
+import chromadb
+from sentence_transformers import SentenceTransformer
+from typing import List, Union, Dict, Any
+
+# ----------------------------------------------------------------------
+# PART 1: IMPLEMENTATIONS
+# These are the actual components being tested. They are included here
+# to make the test file self-contained.
+# ----------------------------------------------------------------------
+
+# Implementation from 1.3.1.2: EmbeddingGenerator
+class EmbeddingGenerator:
+    """
+    Generates embeddings for semantic summaries and code chunks using a
+    pre-trained sentence-transformer model.
+    """
+
+    def __init__(self, model_name: str = 'all-mpnet-base-v2'):
+        """
+        Initializes the generator and loads the sentence-transformer model.
+
+        On first instantiation, this may download the model which can take time
+        and require an internet connection.
+
+        Args:
+            model_name (str): The name of the model to use from the
+                              sentence-transformers library. 'all-mpnet-base-v2'
+                              is a strong general-purpose model.
+        """
+        self.model = SentenceTransformer(model_name)
+
+    def generate_embeddings(
+        self, texts: Union[str, List[str]]
+    ) -> np.ndarray:
+        """
+        Encodes a single text or a list of texts into embedding vectors.
+
+        Args:
+            texts (Union[str, List[str]]): The text or texts to encode.
+                Can be semantic summaries, code chunks, or other text.
+
+        Returns:
+            np.ndarray: A numpy array containing the embedding(s).
+            - If the input is a single string, the shape will be (embedding_dim,).
+            - If the input is a list of N strings, the shape will be (N, embedding_dim).
+        """
+        embeddings = self.model.encode(texts, convert_to_numpy=True)
+        return embeddings
+
+# Implementation from 1.3.1.3: DataIngestionPipeline
+class DataIngestionPipeline:
+    """
+    Processes commit data, generates embeddings, and stores them in a ChromaDB
+    vector database.
+    """
+
+    def __init__(
+        self,
+        embedding_generator: EmbeddingGenerator,
+        db_path: str = "./chroma_db",
+        collection_name: str = "commits"
+    ):
+        """
+        Initializes the pipeline with an embedding generator and a connection
+        to a ChromaDB collection.
+
+        Args:
+            embedding_generator (EmbeddingGenerator): An instance of the class
+                responsible for creating embeddings.
+            db_path (str): The file path for the persistent ChromaDB storage.
+            collection_name (str): The name of the collection to store commits in.
+        """
+        self.embedding_generator = embedding_generator
+        self.client = chromadb.PersistentClient(path=db_path)
+        self.collection = self.client.get_or_create_collection(name=collection_name)
+
+    def ingest_commits(self, commits: List[Dict[str, Any]]):
+        """
+        Processes a batch of commits, generates embeddings for their summaries,
+        and upserts them into the vector database.
+
+        The commit dictionary is expected to have at least 'commit_hash' and
+        'summary' keys. Other key-value pairs will be stored as metadata.
+
+        Args:
+            commits (List[Dict[str, Any]]): A list of commit data, where each
+                commit is a dictionary.
+        """
+        if not commits:
+            return
+
+        # Prepare data for batch processing
+        commit_ids = [commit['commit_hash'] for commit in commits]
+        summaries = [commit['summary'] for commit in commits]
+        
+        # Use other commit info as metadata, excluding the ID field
+        metadatas = [
+            {k: v for k, v in commit.items() if k != 'commit_hash'}
+            for commit in commits
+        ]
+
+        # Generate embeddings in a single batch for efficiency
+        embeddings = self.embedding_generator.generate_embeddings(summaries)
+
+        # Upsert the data into the ChromaDB collection.
+        # Upserting is idempotent and handles both new inserts and updates for
+        # existing IDs.
+        self.collection.upsert(
+            ids=commit_ids,
+            embeddings=embeddings.tolist(),
+            metadatas=metadatas,
+            documents=summaries
+        )
+
+
+# ----------------------------------------------------------------------
+# PART 2: INTEGRATION TEST
+# This class tests the interaction between EmbeddingGenerator and
+# DataIngestionPipeline, ensuring they set up a functional vector DB.
+# ----------------------------------------------------------------------
+
+class TestVectorDatabaseSetupIntegration(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        """
+        Load the embedding model once for the entire test suite.
+        This is efficient as model loading can be slow.
+        """
+        # Note: This step might download the model on first run.
+        cls.embedding_generator = EmbeddingGenerator(model_name='all-mpnet-base-v2')
+        cls.embedding_dim = cls.embedding_generator.model.get_sentence_embedding_dimension()
+
+
+    def setUp(self):
+        """
+        Set up a temporary directory for ChromaDB for each test to ensure isolation.
+        """
+        self.test_dir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.test_dir, "chroma_db")
+        self.collection_name = "test_commits_collection"
+
+        # Instantiate the pipeline with the pre-loaded generator
+        self.pipeline = DataIngestionPipeline(
+            embedding_generator=self.embedding_generator,
+            db_path=self.db_path,
+            collection_name=self.collection_name
+        )
+        # Direct access to the collection for assertions
+        self.collection = self.pipeline.collection
+
+    def tearDown(self):
+        """
+        Clean up the temporary directory after each test.
+        """
+        shutil.rmtree(self.test_dir)
+
+    def test_ingest_and_retrieve_single_commit(self):
+        """
+        Tests if a single commit can be ingested and then retrieved correctly,
+        verifying all its components (ID, document, metadata, embedding).
+        """
+        # Arrange: Create a single sample commit
+        commit_data = [{
+            "commit_hash": "a1b2c3d4",
+            "summary": "Feat: Add user login functionality.",
+            "author": "test_user",
+            "files_changed": 5
+        }]
+
+        # Act: Ingest the commit using the pipeline
+        self.pipeline.ingest_commits(commit_data)
+
+        # Assert: Verify the data was stored correctly in ChromaDB
+        self.assertEqual(self.collection.count(), 1, "Collection should contain one item.")
+        
+        retrieved_data = self.collection.get(
+            ids=["a1b2c3d4"],
+            include=["metadatas", "documents", "embeddings"]
+        )
+
+        # Verify ID, document, and metadata
+        self.assertEqual(retrieved_data['ids'][0], "a1b2c3d4")
+        self.assertEqual(retrieved_data['documents'][0], "Feat: Add user login functionality.")
+        self.assertEqual(retrieved_data['metadatas'][0]['author'], "test_user")
+        self.assertEqual(retrieved_data['metadatas'][0]['files_changed'], 5)
+        
+        # Verify the embedding was stored and has the correct dimension
+        stored_embedding = retrieved_data['embeddings'][0]
+        self.assertIsNotNone(stored_embedding)
+        self.assertEqual(len(stored_embedding), self.embedding_dim)
+
+    def test_ingest_multiple_commits_and_semantic_query(self):
+        """
+        Tests the end-to-end flow: ingest multiple commits and then perform a
+        semantic query to find the most relevant one.
+        """
+        # Arrange: Create a list of distinct commits
+        commits = [
+            {'commit_hash': 'hash001', 'summary': 'Fix: Corrected a critical bug in the payment gateway.', 'author': 'dev_a'},
+            {'commit_hash': 'hash002', 'summary': 'Feat: Implemented two-factor authentication for users.', 'author': 'dev_b'},
+            {'commit_hash': 'hash003', 'summary': 'Refactor: Optimized database query performance.', 'author': 'dev_c'},
+        ]
+        self.pipeline.ingest_commits(commits)
+        self.assertEqual(self.collection.count(), 3)
+
+        # Act: Formulate a semantic query and find the most similar document
+        query_text = "how can a person secure their account?"
+        query_embedding = self.embedding_generator.generate_embeddings(query_text)
+        
+        query_results = self.collection.query(
+            query_embeddings=[query_embedding.tolist()],
+            n_results=1
+        )
+
+        # Assert: The top result should be the commit about authentication
+        self.assertEqual(len(query_results['ids'][0]), 1, "Query should return one result.")
+        most_relevant_id = query_results['ids'][0][0]
+        self.assertEqual(most_relevant_id, 'hash002', "The most relevant commit should be about security.")
+
+    def test_upsert_updates_existing_commit_data(self):
+        """
+        Verifies that ingesting a commit with an existing ID updates its data
+        (document and metadata) instead of creating a new entry.
+        """
+        # Arrange: Ingest an initial version of a commit
+        initial_commit = [{
+            "commit_hash": "xyz789",
+            "summary": "Initial documentation draft",
+            "author": "writer"
+        }]
+        self.pipeline.ingest_commits(initial_commit)
+        self.assertEqual(self.collection.count(), 1)
+
+        # Act: Ingest an updated version of the same commit
+        updated_commit = [{
+            "commit_hash": "xyz789",
+            "summary": "Feat: Complete API documentation with examples",
+            "author": "writer",
+            "status": "completed"  # New metadata field
+        }]
+        self.pipeline.ingest_commits(updated_commit)
+
+        # Assert: The collection count remains 1, and data is updated
+        self.assertEqual(self.collection.count(), 1, "Upsert should not increase the item count.")
+        retrieved_commit = self.collection.get(ids=["xyz789"], include=["metadatas", "documents"])
+        
+        self.assertEqual(retrieved_commit['documents'][0], updated_commit[0]['summary'])
+        self.assertEqual(retrieved_commit['metadatas'][0]['status'], 'completed')
+        self.assertEqual(retrieved_commit['metadatas'][0]['author'], 'writer')
+
+    def test_ingest_empty_list_is_handled_gracefully(self):
+        """
+        Tests that the pipeline does not raise an error and the DB state remains
+        unchanged when an empty list of commits is provided.
+        """
+        # Arrange
+        initial_count = self.collection.count()
+        self.assertEqual(initial_count, 0)
+        
+        # Act
+        try:
+            self.pipeline.ingest_commits([])
+        except Exception as e:
+            self.fail(f"ingest_commits() raised an exception with empty list: {e}")
+
+        # Assert
+        final_count = self.collection.count()
+        self.assertEqual(final_count, initial_count, "Collection count should not change.")
+
+    def test_embedding_consistency(self):
+        """
+        Verifies that the embedding stored in the database is identical to one
+        generated independently for the same text.
+        """
+        # Arrange
+        commit = [{
+            "commit_hash": "embedding_test_hash",
+            "summary": "A simple sentence for testing vector consistency."
+        }]
+
+        # Act
+        self.pipeline.ingest_commits(commit)
+
+        # Assert
+        # Generate the expected embedding independently
+        expected_embedding = self.embedding_generator.generate_embeddings(commit[0]['summary'])
+        
+        # Retrieve the stored embedding
+        retrieved = self.collection.get(ids=[commit[0]['commit_hash']], include=['embeddings'])
+        stored_embedding = np.array(retrieved['embeddings'][0])
+
+        # Compare the two embeddings for near-equality
+        np.testing.assert_allclose(
+            stored_embedding,
+            expected_embedding,
+            atol=1e-6,
+            err_msg="Stored embedding does not match independently generated one."
+        )
+
+
+# ----------------------------------------------------------------------
+# PART 3: TEST RUNNER
+# ----------------------------------------------------------------------
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+==================================================

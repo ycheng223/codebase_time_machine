@@ -1,0 +1,222 @@
+import unittest
+import ast
+from typing import Optional
+
+# Implementation from Subtask 1.3.1.2
+def generate_ast_from_code_blob(code_blob: str) -> Optional[ast.AST]:
+    """
+    Generates an Abstract Syntax Tree (AST) from a string of Python code.
+
+    This function takes a string containing source code and attempts to parse
+    it into an AST. If the code contains a syntax error, the function
+    handles the exception gracefully and returns None.
+
+    Args:
+        code_blob: A string containing the Python source code to be parsed.
+
+    Returns:
+        An ast.AST object representing the root of the tree if parsing is
+        successful, otherwise None.
+    """
+    try:
+        tree = ast.parse(code_blob)
+        return tree
+    except (SyntaxError, ValueError):
+        # A SyntaxError is raised for malformed code.
+        # A ValueError can be raised for source code containing null bytes.
+        return None
+
+class TestCodeParsingIntegration(unittest.TestCase):
+    """
+    Integration tests for the 'Code Parsing & AST Generation' task.
+
+    These tests verify that the `generate_ast_from_code_blob` function can
+    correctly parse a comprehensive, realistic Python module structure, integrating
+    various language features like imports, classes, functions, control flow,
+    and expressions into a single, valid AST.
+    """
+
+    def test_parse_realistic_module(self):
+        """
+        Tests parsing of a realistic Python module blob containing multiple integrated features.
+        """
+        code_blob = """
+import os
+import sys
+
+GLOBAL_VAR = "test"
+
+class DataProcessor:
+    \"\"\"A simple class to process data.\"\"\"
+    def __init__(self, name):
+        self.name = name
+        self.data = []
+
+    def add_item(self, item):
+        if item not in self.data:
+            self.data.append(item)
+            return True
+        return False
+
+def main_function(processor):
+    \"\"\"Main function to run the processor.\"\"\"
+    for i in range(10):
+        processor.add_item(i)
+    return len(processor.data)
+
+if __name__ == "__main__":
+    dp = DataProcessor("MyProcessor")
+    main_function(dp)
+"""
+        tree = generate_ast_from_code_blob(code_blob)
+        self.assertIsNotNone(tree, "Failed to parse a valid, complex module.")
+        self.assertIsInstance(tree, ast.Module)
+        
+        # Check top-level nodes
+        # 2 imports, 1 assign, 1 class, 1 function, 1 if
+        self.assertEqual(len(tree.body), 6)
+        
+        # 1. Verify Imports
+        self.assertIsInstance(tree.body[0], ast.Import)
+        self.assertEqual(tree.body[0].names[0].name, "os")
+        self.assertIsInstance(tree.body[1], ast.Import)
+        self.assertEqual(tree.body[1].names[0].name, "sys")
+        
+        # 2. Verify Global Variable Assignment
+        self.assertIsInstance(tree.body[2], ast.Assign)
+        self.assertEqual(tree.body[2].targets[0].id, "GLOBAL_VAR")
+        
+        # 3. Verify Class Definition and its contents
+        class_def = tree.body[3]
+        self.assertIsInstance(class_def, ast.ClassDef)
+        self.assertEqual(class_def.name, "DataProcessor")
+        # Body contains docstring, __init__, add_item
+        self.assertEqual(len(class_def.body), 3)
+        
+        # Check __init__ method
+        init_method = class_def.body[1]
+        self.assertIsInstance(init_method, ast.FunctionDef)
+        self.assertEqual(init_method.name, "__init__")
+        self.assertEqual(len(init_method.body), 2) # Two assignments
+        
+        # Check add_item method
+        add_item_method = class_def.body[2]
+        self.assertIsInstance(add_item_method, ast.FunctionDef)
+        self.assertEqual(add_item_method.name, "add_item")
+        self.assertEqual(len(add_item_method.body), 2) # An If and a Return
+        self.assertIsInstance(add_item_method.body[0], ast.If)
+        
+        # 4. Verify Standalone Function
+        func_def = tree.body[4]
+        self.assertIsInstance(func_def, ast.FunctionDef)
+        self.assertEqual(func_def.name, "main_function")
+        self.assertEqual(len(func_def.body), 3) # docstring, for loop, return
+        self.assertIsInstance(func_def.body[1], ast.For)
+        
+        # 5. Verify `if __name__ == "__main__"` block
+        if_main_block = tree.body[5]
+        self.assertIsInstance(if_main_block, ast.If)
+        self.assertIsInstance(if_main_block.test, ast.Compare)
+
+    def test_empty_and_comment_only_code(self):
+        """
+        Tests the parser's behavior with non-functional but valid code blobs.
+        """
+        # Empty string
+        empty_tree = generate_ast_from_code_blob("")
+        self.assertIsNotNone(empty_tree)
+        self.assertIsInstance(empty_tree, ast.Module)
+        self.assertEqual(len(empty_tree.body), 0)
+
+        # Whitespace only
+        whitespace_tree = generate_ast_from_code_blob("    \n\n  \t\n")
+        self.assertIsNotNone(whitespace_tree)
+        self.assertIsInstance(whitespace_tree, ast.Module)
+        self.assertEqual(len(whitespace_tree.body), 0)
+
+        # Comments only
+        comment_tree = generate_ast_from_code_blob("# This is a comment\n# And another one")
+        self.assertIsNotNone(comment_tree)
+        self.assertIsInstance(comment_tree, ast.Module)
+        self.assertEqual(len(comment_tree.body), 0)
+
+    def test_code_with_only_docstring(self):
+        """
+        Tests parsing of a file that only contains a module-level docstring.
+        """
+        code = '"""This is a module docstring."""'
+        tree = generate_ast_from_code_blob(code)
+        self.assertIsNotNone(tree)
+        self.assertIsInstance(tree, ast.Module)
+        self.assertEqual(len(tree.body), 1)
+        
+        # The docstring is parsed as an expression node
+        self.assertIsInstance(tree.body[0], ast.Expr)
+        # Containing a constant value (string)
+        self.assertIsInstance(tree.body[0].value, ast.Constant)
+        self.assertEqual(tree.body[0].value.value, "This is a module docstring.")
+
+    def test_deeply_nested_syntax_error(self):
+        """
+        Ensures a syntax error deep within a valid structure is caught and handled.
+        """
+        code_blob = """
+class MyClass:
+    def my_method(self):
+        items = [1, 2, 3]
+        for item in items
+            print(item) # Missing colon on the line above
+"""
+        tree = generate_ast_from_code_blob(code_blob)
+        self.assertIsNone(tree, "Did not handle deeply nested SyntaxError gracefully.")
+
+    def test_value_error_from_null_byte(self):
+        """
+        Verifies that code containing a null byte returns None, as it should raise ValueError.
+        """
+        code_blob_with_null = "x = 1\0; y = 2"
+        tree = generate_ast_from_code_blob(code_blob_with_null)
+        self.assertIsNone(tree, "Did not handle ValueError from null byte in code.")
+        
+    def test_complex_expressions_and_comprehensions(self):
+        """
+        Tests parsing of integrated complex expressions like list comprehensions and chained calls.
+        """
+        code_blob = """
+def process_data(data):
+    results = [x.strip().lower() for x in data if len(x) > 5]
+    summary = {
+        "count": len(results),
+        "unique": len(set(results))
+    }
+    return summary["count"]
+"""
+        tree = generate_ast_from_code_blob(code_blob)
+        self.assertIsNotNone(tree)
+        
+        func_def = tree.body[0]
+        self.assertIsInstance(func_def, ast.FunctionDef)
+        
+        # Test list comprehension
+        assign_comp = func_def.body[0]
+        self.assertIsInstance(assign_comp, ast.Assign)
+        list_comp = assign_comp.value
+        self.assertIsInstance(list_comp, ast.ListComp)
+        
+        # Test dictionary literal
+        assign_dict = func_def.body[1]
+        self.assertIsInstance(assign_dict, ast.Assign)
+        dict_literal = assign_dict.value
+        self.assertIsInstance(dict_literal, ast.Dict)
+        self.assertEqual(len(dict_literal.keys), 2)
+        
+        # Test subscript access in return
+        return_stmt = func_def.body[2]
+        self.assertIsInstance(return_stmt, ast.Return)
+        subscript = return_stmt.value
+        self.assertIsInstance(subscript, ast.Subscript)
+        self.assertEqual(subscript.value.id, "summary")
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

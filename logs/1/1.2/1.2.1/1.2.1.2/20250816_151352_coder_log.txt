@@ -1,0 +1,68 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T15:13:52.778446
+Task: Implement repository cloning logic using a git library (e.g., GitPython, nodegit)
+
+Output:
+import shutil
+import git
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
+
+def clone_repository(repo_url: str, cache_dir: 'Path', *, ref: 'Optional[str]' = None, depth: 'Optional[int]' = None, force: bool = False) -> 'Path':
+    """
+    Clones a remote git repository to a local cache directory.
+
+    Args:
+        repo_url: The URL of the git repository.
+        cache_dir: The base directory for the local cache.
+        ref: The branch, tag, or commit to checkout. Defaults to the default branch.
+        depth: If specified, creates a shallow clone with a history truncated to this
+               number of commits.
+        force: If True, deletes the destination directory if it already exists
+               before cloning.
+
+    Returns:
+        The path to the cloned repository.
+
+    Raises:
+        FileExistsError: If the destination directory exists and force is False.
+        IOError: If there is an error during the git clone operation.
+    """
+    parsed_url = urlparse(repo_url)
+    # Create a predictable path from the URL, e.g., cache_dir/github.com/user/repo
+    repo_subpath = Path(parsed_url.netloc) / Path(parsed_url.path.strip('/')).with_suffix('')
+    destination_path = cache_dir / repo_subpath
+
+    if destination_path.exists():
+        if force:
+            shutil.rmtree(destination_path)
+        else:
+            raise FileExistsError(
+                f"Destination path '{destination_path}' already exists. "
+                "Use force=True to overwrite."
+            )
+
+    clone_kwargs = {}
+    if ref:
+        clone_kwargs['branch'] = ref
+    if depth:
+        clone_kwargs['depth'] = depth
+
+    try:
+        # Ensure the parent directory exists, as GitPython won't create it.
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        git.Repo.clone_from(
+            url=repo_url,
+            to_path=destination_path,
+            **clone_kwargs
+        )
+    except git.exc.GitCommandError as e:
+        # Wrap git-specific error in a more generic IOError for easier handling
+        raise IOError(f"Failed to clone repository '{repo_url}': {e}") from e
+
+    return destination_path
+
+==================================================

@@ -1,0 +1,6 @@
+{
+  "task_id": "1.1.2.2",
+  "task": "Define data structure for FileChange (file_path, status, diff)",
+  "skip_reason": "Non-code task",
+  "timestamp": "2025-08-16 16:07:08"
+}

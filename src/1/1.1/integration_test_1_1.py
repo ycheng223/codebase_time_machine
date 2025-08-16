@@ -1,0 +1,186 @@
+import unittest
+import os
+import sys
+import tempfile
+import shutil
+import io
+from contextlib import redirect_stderr
+
+# 1.1.3/1.1.3.2: Implementation of the test runner
+def run_automated_tests(start_dir='.', pattern='test_*.py'):
+    """
+    Discovers and runs all tests in a directory that match a pattern
+    using the unittest framework.
+    """
+    loader = unittest.TestLoader()
+    suite = loader.discover(start_dir, pattern=pattern)
+    runner = unittest.TextTestRunner(stream=sys.stderr, verbosity=2)
+    result = runner.run(suite)
+    return result
+
+class TestProjectSetupIntegration(unittest.TestCase):
+    """
+    Integration test for the core infrastructure's test runner.
+    """
+
+    def setUp(self):
+        """
+        Set up a temporary directory with a mock project structure and test files.
+        """
+        self.temp_dir = tempfile.mkdtemp()
+        self.project_root = os.path.join(self.temp_dir, 'my_project')
+        os.makedirs(self.project_root)
+
+        # 1. A test file with a passing test
+        with open(os.path.join(self.project_root, 'test_passing.py'), 'w') as f:
+            f.write("""
+import unittest
+class PassingTest(unittest.TestCase):
+    def test_simple_pass(self):
+        self.assertEqual(2 + 2, 4)
+""")
+
+        # 2. A test file with a failing test
+        with open(os.path.join(self.project_root, 'test_failing.py'), 'w') as f:
+            f.write("""
+import unittest
+class FailingTest(unittest.TestCase):
+    def test_simple_fail(self):
+        self.fail("This test is designed to fail.")
+""")
+
+        # 3. A test file with a test that causes an error
+        with open(os.path.join(self.project_root, 'test_error.py'), 'w') as f:
+            f.write("""
+import unittest
+class ErrorTest(unittest.TestCase):
+    def test_runtime_error(self):
+        result = 1 / 0
+""")
+
+        # 4. A non-test Python file that should be ignored
+        with open(os.path.join(self.project_root, 'helper_module.py'), 'w') as f:
+            f.write("def utility_function(): return True")
+
+        # 5. A test file in a subdirectory to test recursive discovery
+        sub_dir = os.path.join(self.project_root, 'components')
+        os.makedirs(sub_dir)
+        with open(os.path.join(sub_dir, 'test_component.py'), 'w') as f:
+            f.write("""
+import unittest
+class ComponentTest(unittest.TestCase):
+    def test_component_pass(self):
+        self.assertTrue(True)
+""")
+
+        # 6. A test file that does not match the default pattern
+        with open(os.path.join(self.project_root, 'suite_special.py'), 'w') as f:
+            f.write("""
+import unittest
+class SpecialSuiteTest(unittest.TestCase):
+    def test_special(self):
+        self.assertIn('a', 'abc')
+""")
+
+    def tearDown(self):
+        """
+        Clean up the temporary directory and its contents.
+        """
+        shutil.rmtree(self.temp_dir)
+
+    def test_run_with_default_pattern(self):
+        """
+        Tests if the runner discovers and runs all tests matching 'test_*.py'
+        in the project directory and its subdirectories, correctly reporting
+        passes, failures, and errors.
+        """
+        # Capture stderr to check the output of TextTestRunner
+        captured_output = io.StringIO()
+        with redirect_stderr(captured_output):
+            result = run_automated_tests(start_dir=self.project_root)
+
+        output = captured_output.getvalue()
+
+        # Verify test result object
+        self.assertFalse(result.wasSuccessful())
+        self.assertEqual(result.testsRun, 4)
+        self.assertEqual(len(result.failures), 1)
+        self.assertEqual(len(result.errors), 1)
+
+        # Verify human-readable output
+        self.assertIn("test_component_pass (components.test_component.ComponentTest) ... ok", output)
+        self.assertIn("test_runtime_error (test_error.ErrorTest) ... ERROR", output)
+        self.assertIn("test_simple_fail (test_failing.FailingTest) ... FAIL", output)
+        self.assertIn("test_simple_pass (test_passing.PassingTest) ... ok", output)
+        self.assertIn("Ran 4 tests", output)
+        self.assertIn("FAILED (failures=1, errors=1)", output)
+        self.assertNotIn("SpecialSuiteTest", output) # Should not run this test
+
+    def test_run_with_custom_pattern(self):
+        """
+        Tests if the runner can use a custom file pattern to discover tests.
+        """
+        captured_output = io.StringIO()
+        with redirect_stderr(captured_output):
+            result = run_automated_tests(start_dir=self.project_root, pattern='suite_*.py')
+
+        output = captured_output.getvalue()
+
+        # Verify test result object
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(len(result.failures), 0)
+        self.assertEqual(len(result.errors), 0)
+
+        # Verify human-readable output
+        self.assertIn("test_special (suite_special.SpecialSuiteTest) ... ok", output)
+        self.assertIn("Ran 1 test", output)
+        self.assertIn("OK", output)
+        # Ensure default tests were not run
+        self.assertNotIn("PassingTest", output)
+        self.assertNotIn("FailingTest", output)
+
+    def test_run_with_no_matching_tests(self):
+        """
+        Tests the behavior of the runner when no tests match the given pattern.
+        It should run 0 tests and report success.
+        """
+        captured_output = io.StringIO()
+        with redirect_stderr(captured_output):
+            result = run_automated_tests(start_dir=self.project_root, pattern='nonexistent_*.py')
+
+        output = captured_output.getvalue()
+
+        # Verify test result object
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(result.testsRun, 0)
+
+        # Verify human-readable output
+        self.assertIn("Ran 0 tests", output)
+        self.assertIn("OK", output)
+
+    def test_run_on_nonexistent_directory(self):
+        """
+        Tests the runner's behavior when the start directory does not exist.
+        The unittest discoverer should handle this gracefully, finding 0 tests.
+        """
+        nonexistent_path = os.path.join(self.temp_dir, 'does_not_exist')
+
+        captured_output = io.StringIO()
+        with redirect_stderr(captured_output):
+            # unittest.discover raises ImportError if the directory isn't found
+            # or isn't a package, which is handled internally by the TestLoader.
+            # The net result is a suite with 0 tests.
+            result = run_automated_tests(start_dir=nonexistent_path)
+
+        output = captured_output.getvalue()
+        
+        # Verify it ran zero tests and succeeded
+        self.assertTrue(result.wasSuccessful())
+        self.assertEqual(result.testsRun, 0)
+        self.assertIn("Ran 0 tests", output)
+        self.assertIn("OK", output)
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

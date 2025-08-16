@@ -1,0 +1,736 @@
+{
+  "project_name": "Codebase_Time_Machine",
+  "project_prompt": "Codebase Time Machine Description: Navigate any codebase through time, understanding evolution of features and architectural decisions. Requirements: • Clone repo and analyze full git history • Build semantic understanding of code changes over time • Answer questions like \"\"Why was this pattern introduced?\"\" or \"\"Show me how auth evolved\"\" • Visualize code ownership and complexity trends • Link commits to business features/decisions",
+  "created_timestamp": "2025-08-16 16:06:33",
+  "task_tree": {
+    "id": "1",
+    "task": "Codebase Time Machine Project",
+    "sub_tasks": [
+      {
+        "id": "1.1",
+        "task": "Project Setup & Core Infrastructure",
+        "sub_tasks": [
+          {
+            "id": "1.1.1",
+            "task": "Initialize Project Repository",
+            "sub_tasks": [
+              {
+                "id": "1.1.1.1",
+                "task": "Setup Git repository and version control",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.1.1.2",
+                "task": "Choose project structure (e.g., monorepo, standard layout)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.1.1.3",
+                "task": "Configure dependency management (e.g., Poetry, NPM)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.1.2",
+            "task": "Define Core Data Models",
+            "sub_tasks": [
+              {
+                "id": "1.1.2.1",
+                "task": "Define data structure for Commit (hash, author, date, message)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.1.2.2",
+                "task": "Define data structure for FileChange (file_path, status, diff)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.1.2.3",
+                "task": "Define data structure for SemanticChange (change_type, element_name, code_snippet)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.1.3",
+            "task": "Setup CI/CD Pipeline",
+            "sub_tasks": [
+              {
+                "id": "1.1.3.1",
+                "task": "Configure linting and code formatting",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.1.3.2",
+                "task": "Implement automated testing workflow",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.1.3.3",
+                "task": "Setup automated deployment script",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      },
+      {
+        "id": "1.2",
+        "task": "Data Ingestion: Git History Processing",
+        "sub_tasks": [
+          {
+            "id": "1.2.1",
+            "task": "Repository Cloning Module",
+            "sub_tasks": [
+              {
+                "id": "1.2.1.1",
+                "task": "Define function signature for cloning a remote git repository",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.2.1.2",
+                "task": "Implement cloning logic using a library (e.g., GitPython, nodegit)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.2.1.3",
+                "task": "Write unit tests for cloning public and private repositories",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.2.2",
+            "task": "Commit History Parser",
+            "sub_tasks": [
+              {
+                "id": "1.2.2.1",
+                "task": "Define function to iterate through all commits in history",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.2.2.2",
+                "task": "Implement logic to extract commit metadata (author, date, message, diffs)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.2.2.3",
+                "task": "Write unit tests for parsing various commit types (initial, merge, standard)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.2.3",
+            "task": "Data Persistence Layer",
+            "sub_tasks": [
+              {
+                "id": "1.2.3.1",
+                "task": "Design database schema for storing parsed git data",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.2.3.2",
+                "task": "Implement functions to write commit and change data to the database",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.2.3.3",
+                "task": "Write tests for data insertion and retrieval",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      },
+      {
+        "id": "1.3",
+        "task": "Semantic Code Analysis Engine",
+        "sub_tasks": [
+          {
+            "id": "1.3.1",
+            "task": "Code Parsing & AST Generation",
+            "sub_tasks": [
+              {
+                "id": "1.3.1.1",
+                "task": "Select and integrate a multi-language parser (e.g., tree-sitter)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.1.2",
+                "task": "Implement function to generate an AST from a code file blob",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.1.3",
+                "task": "Write unit tests for parsing key language constructs (functions, classes)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.3.2",
+            "task": "Semantic Diffing Module",
+            "sub_tasks": [
+              {
+                "id": "1.3.2.1",
+                "task": "Define function to compare ASTs of two file versions",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.2.2",
+                "task": "Implement logic to identify semantic changes (e.g., function signature change, class rename)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.2.3",
+                "task": "Write unit tests for detecting various semantic changes",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.3.3",
+            "task": "Code Embedding and Vector Storage",
+            "sub_tasks": [
+              {
+                "id": "1.3.3.1",
+                "task": "Setup vector database (e.g., ChromaDB, Pinecone)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.3.2",
+                "task": "Implement function to generate embeddings for code chunks and commit messages",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.3.3",
+                "task": "Implement pipeline to store embeddings and associated metadata",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.3.3.4",
+                "task": "Write tests for embedding generation and vector search retrieval",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      },
+      {
+        "id": "1.4",
+        "task": "Natural Language Question Answering",
+        "sub_tasks": [
+          {
+            "id": "1.4.1",
+            "task": "Query Intent Parser",
+            "sub_tasks": [
+              {
+                "id": "1.4.1.1",
+                "task": "Define function signature to parse a natural language query",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.4.1.2",
+                "task": "Implement logic to extract keywords, entities, and intent (e.g., 'evolution', 'pattern', 'auth')",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.4.1.3",
+                "task": "Write unit tests for various query formats",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.4.2",
+            "task": "Context Retrieval (RAG)",
+            "sub_tasks": [
+              {
+                "id": "1.4.2.1",
+                "task": "Define function to retrieve relevant context for a parsed query",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.4.2.2",
+                "task": "Implement retrieval strategy combining vector search and structured data filtering",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.4.2.3",
+                "task": "Write unit tests to ensure relevant context is fetched for sample questions",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.4.3",
+            "task": "LLM Integration for Answer Synthesis",
+            "sub_tasks": [
+              {
+                "id": "1.4.3.1",
+                "task": "Design prompt templates for different query types (e.g., 'why', 'how')",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.4.3.2",
+                "task": "Implement a client to interact with an LLM API",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.4.3.3",
+                "task": "Write integration tests for the end-to-end Q&A flow",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      },
+      {
+        "id": "1.5",
+        "task": "Visualization & Trend Analysis",
+        "sub_tasks": [
+          {
+            "id": "1.5.1",
+            "task": "Code Ownership Analysis Module",
+            "sub_tasks": [
+              {
+                "id": "1.5.1.1",
+                "task": "Define function to calculate code ownership using 'git blame' data",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.1.2",
+                "task": "Implement ownership calculation logic (lines changed, author frequency)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.1.3",
+                "task": "Write unit tests for ownership calculation",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.5.2",
+            "task": "Code Complexity Analysis Module",
+            "sub_tasks": [
+              {
+                "id": "1.5.2.1",
+                "task": "Integrate library for cyclomatic complexity and other metrics",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.2.2",
+                "task": "Implement function to calculate complexity for a file at a specific commit",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.2.3",
+                "task": "Write unit tests for complexity metrics",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.5.3",
+            "task": "Visualization API & Frontend",
+            "sub_tasks": [
+              {
+                "id": "1.5.3.1",
+                "task": "Design API endpoints to serve ownership and complexity data over time",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.3.2",
+                "task": "Implement backend API using a web framework (e.g., FastAPI, Express)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.3.3",
+                "task": "Develop frontend components (e.g., using D3.js, Chart.js) to display trends",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.5.3.4",
+                "task": "Write tests for API endpoints and frontend components",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      },
+      {
+        "id": "1.6",
+        "task": "Business Context Integration",
+        "sub_tasks": [
+          {
+            "id": "1.6.1",
+            "task": "Ticket System Integration",
+            "sub_tasks": [
+              {
+                "id": "1.6.1.1",
+                "task": "Implement regex to extract ticket IDs (e.g., JIRA-123) from commit messages",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.6.1.2",
+                "task": "Implement an API client for a ticket system (e.g., Jira, Linear)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.6.1.3",
+                "task": "Write tests for ticket ID extraction and API client",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.6.2",
+            "task": "Commit-to-Feature Linking",
+            "sub_tasks": [
+              {
+                "id": "1.6.2.1",
+                "task": "Define function to enrich commit data with fetched ticket information",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.6.2.2",
+                "task": "Update database schema and persistence layer to store linked data",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.6.2.3",
+                "task": "Write tests to verify correct linking between commits and features",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      },
+      {
+        "id": "1.7",
+        "task": "User Interface (CLI/Web)",
+        "sub_tasks": [
+          {
+            "id": "1.7.1",
+            "task": "Develop Command-Line Interface (CLI)",
+            "sub_tasks": [
+              {
+                "id": "1.7.1.1",
+                "task": "Setup CLI framework (e.g., Click, Argparse, Commander.js)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.7.1.2",
+                "task": "Implement command `analyze <repo_url>`",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.7.1.3",
+                "task": "Implement command `ask \"<question>\"`",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.7.1.4",
+                "task": "Write end-to-end tests for CLI commands",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          },
+          {
+            "id": "1.7.2",
+            "task": "Develop Web Interface",
+            "sub_tasks": [
+              {
+                "id": "1.7.2.1",
+                "task": "Setup frontend framework (e.g., React, Vue, Svelte)",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.7.2.2",
+                "task": "Create UI for repository input and analysis status",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.7.2.3",
+                "task": "Create conversational UI for asking questions",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              },
+              {
+                "id": "1.7.2.4",
+                "task": "Integrate visualization components into a dashboard view",
+                "sub_tasks": [],
+                "status": "pending",
+                "result": null,
+                "error": null
+              }
+            ],
+            "status": "pending",
+            "result": null,
+            "error": null
+          }
+        ],
+        "status": "pending",
+        "result": null,
+        "error": null
+      }
+    ],
+    "status": "in_progress",
+    "result": null,
+    "error": null
+  }
+}

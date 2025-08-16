@@ -1,0 +1,231 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T15:44:38.744394
+Task: Integration test for: LLM-based Change Summarization
+
+Output:
+import unittest
+from unittest.mock import patch, MagicMock
+import os
+import openai
+
+# Implementation from Subtask 1.2.3.3
+def generate_commit_summary(diff_text: str, commit_message: str) -> str:
+    """
+    Generates a semantic summary of a commit using the OpenAI API.
+
+    This function takes a git diff and a commit message, sends them to an LLM,
+    and returns a concise, one-sentence summary explaining the "why" of the change.
+
+    Args:
+        diff_text: The git diff output as a string.
+        commit_message: The original commit message as a string.
+
+    Returns:
+        A string containing the generated semantic summary, or an error message
+        if the API call fails or the API key is not configured.
+    """
+    try:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            # In a real-world scenario, you might raise an exception
+            # or have a more sophisticated configuration system.
+            return "Error: OPENAI_API_KEY environment variable not set."
+
+        client = openai.OpenAI(api_key=api_key)
+
+        # Limit the diff size to avoid exceeding token limits for very large changes
+        max_diff_length = 8000
+        if len(diff_text) > max_diff_length:
+            diff_text = diff_text[:max_diff_length] + "\n... (diff truncated)"
+
+        prompt = f"""
+Analyze the following git diff and the original commit message.
+Generate a concise, one-sentence semantic summary of the change.
+The summary should explain the 'why' or the high-level 'what' of the change, suitable for a changelog, rather than just listing the files changed.
+
+Original Commit Message:
+{commit_message}
+
+Git Diff:
+---
+{diff_text}
+---
+
+Semantic Summary:
+"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # A modern, cost-effective model
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=150,
+            n=1,
+            stop=None,
+        )
+
+        summary = response.choices[0].message.content.strip()
+
+        # The model might wrap the output in quotes, so we remove them.
+        if summary.startswith('"') and summary.endswith('"'):
+            summary = summary[1:-1]
+
+        return summary
+
+    except Exception as e:
+        # Basic error handling for API calls or other issues.
+        return f"Error during summary generation: {str(e)}"
+
+# Integration Test
+class TestGenerateCommitSummaryIntegration(unittest.TestCase):
+
+    SAMPLE_DIFF = """
+diff --git a/app/utils.py b/app/utils.py
+index 1234567..89abcde 100644
+--- a/app/utils.py
++++ b/app/utils.py
+@@ -10,6 +10,8 @@
+ def calculate_sum(a, b):
+-    # A simple sum function
+-    return a + b
++    # A more robust sum function
++    if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
++        raise TypeError("Both inputs must be numeric")
++    return a + b
+"""
+    SAMPLE_COMMIT_MSG = "Refactor: Improve type checking in calculate_sum"
+
+    def setUp(self):
+        """Set up the environment for each test by mocking the API key."""
+        self.original_api_key = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "test-api-key-for-integration"
+
+    def tearDown(self):
+        """Clean up the environment after each test."""
+        if self.original_api_key:
+            os.environ["OPENAI_API_KEY"] = self.original_api_key
+        elif "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+
+    @patch('openai.OpenAI')
+    def test_successful_summary_generation(self, MockOpenAI):
+        """
+        Tests the happy path: a valid diff and commit message produce a summary.
+        It verifies that the OpenAI client is called with the correct parameters
+        and the response is processed correctly.
+        """
+        # Arrange
+        mock_client_instance = MockOpenAI.return_value
+        mock_response = MagicMock()
+        expected_summary = "This change enhances the `calculate_sum` function by adding type checking to ensure both inputs are numeric."
+        mock_response.choices[0].message.content = expected_summary
+        mock_client_instance.chat.completions.create.return_value = mock_response
+
+        # Act
+        summary = generate_commit_summary(self.SAMPLE_DIFF, self.SAMPLE_COMMIT_MSG)
+
+        # Assert
+        self.assertEqual(summary, expected_summary)
+        MockOpenAI.assert_called_once_with(api_key="test-api-key-for-integration")
+        mock_client_instance.chat.completions.create.assert_called_once()
+        
+        call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
+        self.assertEqual(call_kwargs['model'], "gpt-4o-mini")
+        self.assertEqual(call_kwargs['temperature'], 0.2)
+        self.assertEqual(call_kwargs['max_tokens'], 150)
+        
+        prompt = call_kwargs['messages'][0]['content']
+        self.assertIn(self.SAMPLE_DIFF, prompt)
+        self.assertIn(self.SAMPLE_COMMIT_MSG, prompt)
+        self.assertIn("Generate a concise, one-sentence semantic summary", prompt)
+
+    def test_missing_api_key_error(self):
+        """
+        Tests that the function returns a specific error message when the
+        OPENAI_API_KEY environment variable is not set.
+        """
+        # Arrange
+        del os.environ["OPENAI_API_KEY"]
+
+        # Act
+        result = generate_commit_summary(self.SAMPLE_DIFF, self.SAMPLE_COMMIT_MSG)
+
+        # Assert
+        self.assertEqual(result, "Error: OPENAI_API_KEY environment variable not set.")
+
+    @patch('openai.OpenAI')
+    def test_api_call_exception_handling(self, MockOpenAI):
+        """
+        Tests that the function gracefully handles exceptions raised by the
+        OpenAI API client and returns a formatted error message.
+        """
+        # Arrange
+        mock_client_instance = MockOpenAI.return_value
+        error_message = "API rate limit exceeded"
+        mock_client_instance.chat.completions.create.side_effect = Exception(error_message)
+
+        # Act
+        result = generate_commit_summary(self.SAMPLE_DIFF, self.SAMPLE_COMMIT_MSG)
+
+        # Assert
+        self.assertEqual(result, f"Error during summary generation: {error_message}")
+
+    @patch('openai.OpenAI')
+    def test_response_with_quotes_is_cleaned(self, MockOpenAI):
+        """
+        Tests that the function correctly removes leading and trailing double quotes
+        from the LLM's response.
+        """
+        # Arrange
+        mock_client_instance = MockOpenAI.return_value
+        mock_response = MagicMock()
+        summary_with_quotes = '"This improves robustness by adding type validation to the calculator."'
+        mock_response.choices[0].message.content = summary_with_quotes
+        mock_client_instance.chat.completions.create.return_value = mock_response
+
+        # Act
+        summary = generate_commit_summary(self.SAMPLE_DIFF, self.SAMPLE_COMMIT_MSG)
+
+        # Assert
+        self.assertEqual(summary, 'This improves robustness by adding type validation to the calculator.')
+
+    @patch('openai.OpenAI')
+    def test_long_diff_is_truncated(self, MockOpenAI):
+        """
+        Tests that a diff exceeding the 8000 character limit is truncated
+        before being sent to the API.
+        """
+        # Arrange
+        long_diff = "a" * 9000
+        commit_msg = "feat: add a very large file"
+        
+        mock_client_instance = MockOpenAI.return_value
+        mock_client_instance.chat.completions.create.return_value = MagicMock()
+
+        # Act
+        generate_commit_summary(long_diff, commit_msg)
+
+        # Assert
+        mock_client_instance.chat.completions.create.assert_called_once()
+        call_kwargs = mock_client_instance.chat.completions.create.call_args.kwargs
+        prompt_content = call_kwargs['messages'][0]['content']
+        
+        # Check that the truncation message is present
+        self.assertIn("\n... (diff truncated)", prompt_content)
+        
+        # Verify the length of the diff part within the prompt
+        start_marker = "Git Diff:\n---\n"
+        end_marker = "\n---\n\nSemantic Summary:"
+        start_index = prompt_content.find(start_marker) + len(start_marker)
+        end_index = prompt_content.find(end_marker)
+        diff_in_prompt = prompt_content[start_index:end_index]
+
+        self.assertEqual(len(diff_in_prompt), 8000 + len("\n... (diff truncated)"))
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+==================================================

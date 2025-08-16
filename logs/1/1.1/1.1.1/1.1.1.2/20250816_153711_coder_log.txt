@@ -1,0 +1,50 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T15:37:11.872993
+Task: Implement cloning logic using a git library (e.g., GitPython) or subprocess
+
+Output:
+import git
+import os
+
+def clone_repository(repo_url: str, destination_path: str | None = None, branch: str | None = None) -> str:
+    """
+    Clones a remote Git repository to a specified local path using GitPython.
+
+    Args:
+        repo_url: The URL of the Git repository to clone.
+        destination_path: The local path where the repository should be cloned.
+                          If None, a directory with the repository's name is
+                          created in the current working directory.
+        branch: The specific branch to clone. If None, the default branch is cloned.
+
+    Returns:
+        The absolute path to the cloned repository's working directory.
+
+    Raises:
+        git.exc.GitCommandError: If the git clone command fails for any reason
+                                 (e.g., authentication error, repository not found,
+                                 destination path already exists and is not an
+                                 empty directory).
+    """
+    clone_kwargs = {}
+    if branch:
+        clone_kwargs['branch'] = branch
+
+    # The `clone_from` method handles the destination_path being None by creating
+    # a directory in the current working directory based on the repo name.
+    # It returns a Repo object on success.
+    repo = git.Repo.clone_from(
+        url=repo_url,
+        to_path=destination_path,
+        **clone_kwargs
+    )
+    
+    # The `working_dir` attribute of the Repo object contains the path to the
+    # root of the newly cloned repository.
+    cloned_path = repo.working_dir
+    
+    # Ensure the returned path is absolute for consistency.
+    return os.path.abspath(cloned_path)
+
+==================================================

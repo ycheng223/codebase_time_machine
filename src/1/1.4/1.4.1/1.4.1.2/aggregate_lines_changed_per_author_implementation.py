@@ -1,0 +1,42 @@
+def aggregate_lines_changed_per_author(commits_data):
+    """
+    Aggregates lines changed per author over time from commit data.
+
+    This function processes a list of commit-like dictionaries, each
+    containing author, date, and line change information. It returns a
+    nested dictionary summarizing the total lines changed (added + deleted)
+    for each author on each specific date.
+
+    Args:
+        commits_data (list[dict]): A list of dictionaries, where each
+                                   dictionary represents a commit. Expected keys
+                                   are 'author', 'date', 'lines_added', and
+                                   'lines_deleted'.
+
+    Returns:
+        dict: A dictionary where keys are author names. Each value is another
+              dictionary where keys are dates and values are the integer total
+              of lines changed for that author on that date.
+              Example: {'author1': {'2023-10-27': 150, '2023-10-28': 75}}
+    """
+    author_stats = {}
+
+    for commit in commits_data:
+        author = commit.get('author')
+        date = commit.get('date')
+        lines_added = commit.get('lines_added', 0)
+        lines_deleted = commit.get('lines_deleted', 0)
+
+        if not author or not date:
+            continue
+
+        lines_changed = lines_added + lines_deleted
+
+        if author not in author_stats:
+            author_stats[author] = {}
+
+        # Add the lines changed to the existing total for that author and date
+        current_changes = author_stats[author].get(date, 0)
+        author_stats[author][date] = current_changes + lines_changed
+
+    return author_stats

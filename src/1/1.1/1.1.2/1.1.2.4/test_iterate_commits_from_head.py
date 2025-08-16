@@ -1,0 +1,159 @@
+import unittest
+import git
+import tempfile
+import os
+import shutil
+
+# The implementation to be tested
+def iterate_commits_from_head(repo_path='.'):
+    """
+    Creates a generator to iterate through all commits from HEAD backwards.
+
+    This function opens a Git repository at the specified path and yields
+    each commit object, starting from the current HEAD and traversing
+    the commit history.
+
+    Args:
+        repo_path (str): The path to the git repository. Defaults to the
+                         current working directory.
+
+    Yields:
+        git.Commit: The next commit object in the history.
+    
+    Raises:
+        git.exc.InvalidGitRepositoryError: If the given path is not a valid
+                                           git repository.
+        git.exc.NoSuchPathError: If the given path does not exist.
+    """
+    repo = git.Repo(repo_path, search_parent_directories=True)
+    
+    # repo.iter_commits() starts from the given revision (or HEAD by default)
+    # and walks backwards through the parent commits.
+    for commit in repo.iter_commits('HEAD'):
+        yield commit
+
+
+class TestIterateCommitsFromHead(unittest.TestCase):
+    """
+    Unit tests for the iterate_commits_from_head function.
+    """
+
+    def setUp(self):
+        """Set up a temporary git repository with a merge commit history."""
+        self.repo_dir = tempfile.mkdtemp()
+        self.repo = git.Repo.init(self.repo_dir)
+
+        # Configure a dummy user for commits
+        with self.repo.config_writer() as cw:
+            cw.set_value("user", "name", "Test User")
+            cw.set_value("user", "email", "test@example.com")
+            cw.release()
+
+        # Helper to create a file and commit it
+        def create_commit(filename, content, message):
+            file_path = os.path.join(self.repo_dir, filename)
+            with open(file_path, "w") as f:
+                f.write(content)
+            self.repo.index.add([file_path])
+            return self.repo.index.commit(message)
+
+        # C1: Initial commit on main branch
+        self.c1 = create_commit("file1.txt", "Initial content", "Initial commit")
+
+        # Create a feature branch from C1
+        feature_branch = self.repo.create_head("feature", self.c1)
+
+        # C2: A second commit on the main branch
+        self.c2 = create_commit("file2.txt", "Content for main", "Second commit on main")
+
+        # C3: A commit on the feature branch
+        self.repo.head.reference = feature_branch
+        self.repo.head.reset(index=True, working_tree=True)
+        self.c3 = create_commit("file3.txt", "Content for feature", "First commit on feature")
+
+        # Switch back to main and merge the feature branch
+        self.repo.head.reference = self.repo.heads.main
+        self.repo.head.reset(index=True, working_tree=True)
+        
+        # Manually create the merge commit C4
+        self.c4_merge = self.repo.index.commit(
+            "Merge feature branch",
+            parent_commits=(self.c2, self.c3),
+            head=True # Update HEAD to this new commit
+        )
+
+        self.all_commit_shas = {
+            self.c1.hexsha,
+            self.c2.hexsha,
+            self.c3.hexsha,
+            self.c4_merge.hexsha
+        }
+
+    def tearDown(self):
+        """Clean up the temporary repository directory."""
+        shutil.rmtree(self.repo_dir)
+
+    def test_iterates_all_commits_including_merge(self):
+        """
+        Test that the iterator yields all commits in the history, including
+        those from a merged branch.
+        """
+        commits = list(iterate_commits_from_head(self.repo_dir))
+        yielded_shas = {c.hexsha for c in commits}
+        
+        self.assertEqual(len(commits), 4, "Should find all 4 commits")
+        self.assertEqual(yielded_shas, self.all_commit_shas, "SHAs of all commits should be present")
+
+    def test_head_is_first_commit_yielded(self):
+        """
+        Test that the first commit yielded by the iterator is the current HEAD.
+        """
+        commit_iterator = iterate_commits_from_head(self.repo_dir)
+        first_commit = next(commit_iterator)
+        
+        self.assertEqual(first_commit.hexsha, self.c4_merge.hexsha)
+        self.assertEqual(first_commit, self.repo.head.commit)
+
+    def test_repository_with_initial_commit_only(self):
+        """
+        Test iteration on a repository that contains only the initial commit.
+        """
+        # Create a separate, simple repo for this isolated test
+        with tempfile.TemporaryDirectory() as simple_repo_dir:
+            repo = git.Repo.init(simple_repo_dir)
+            with repo.config_writer() as cw:
+                cw.set_value("user", "name", "Test User")
+                cw.set_value("user", "email", "test@example.com")
+            
+            file_path = os.path.join(simple_repo_dir, "a.txt")
+            with open(file_path, "w") as f:
+                f.write("hello")
+            repo.index.add([file_path])
+            initial_commit = repo.index.commit("Initial and only commit")
+            
+            commits = list(iterate_commits_from_head(simple_repo_dir))
+            
+            self.assertEqual(len(commits), 1)
+            self.assertEqual(commits[0].hexsha, initial_commit.hexsha)
+
+    def test_invalid_git_repository_error(self):
+        """
+        Test that InvalidGitRepositoryError is raised for a non-git directory.
+        """
+        # Create an empty directory that is not a git repo
+        with tempfile.TemporaryDirectory() as non_repo_dir:
+            with self.assertRaises(git.exc.InvalidGitRepositoryError):
+                # We must consume the generator to trigger the repository loading
+                list(iterate_commits_from_head(non_repo_dir))
+
+    def test_no_such_path_error(self):
+        """
+        Test that NoSuchPathError is raised for a non-existent path.
+        """
+        non_existent_path = os.path.join(self.repo_dir, "this_path_does_not_exist")
+        with self.assertRaises(git.exc.NoSuchPathError):
+            list(iterate_commits_from_head(non_existent_path))
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

@@ -1,0 +1,93 @@
+import sqlite3
+
+def setup_database(db_file):
+    """
+    Creates the necessary tables in the database if they do not exist.
+    Enables foreign key support.
+    """
+    with sqlite3.connect(db_file) as conn:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commits (
+                commit_hash TEXT PRIMARY KEY,
+                author_name TEXT NOT NULL,
+                author_email TEXT NOT NULL,
+                commit_date TEXT NOT NULL,
+                message TEXT
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS changes (
+                change_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                commit_hash TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                lines_added INTEGER NOT NULL,
+                lines_deleted INTEGER NOT NULL,
+                FOREIGN KEY (commit_hash) REFERENCES commits (commit_hash) ON DELETE CASCADE
+            )
+        ''')
+        
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_changes_commit_hash ON changes (commit_hash)')
+
+def write_commit(db_file, commit_data):
+    """
+    Writes a single commit's data to the database.
+    It will ignore the insert if a commit with the same hash already exists.
+
+    :param db_file: Path to the SQLite database file.
+    :param commit_data: A dictionary containing commit information.
+                        Example: {
+                            'commit_hash': 'abc123...',
+                            'author_name': 'John Doe',
+                            'author_email': 'john.doe@example.com',
+                            'commit_date': '2023-10-27T10:00:00Z',
+                            'message': 'Initial commit'
+                        }
+    """
+    sql = ''' INSERT OR IGNORE INTO commits(commit_hash, author_name, author_email, commit_date, message)
+              VALUES(:commit_hash, :author_name, :author_email, :commit_date, :message) '''
+    
+    with sqlite3.connect(db_file) as conn:
+        conn.execute(sql, commit_data)
+
+def write_changes(db_file, commit_hash, changes_data):
+    """
+    Writes a list of file changes for a given commit to the database.
+
+    :param db_file: Path to the SQLite database file.
+    :param commit_hash: The hash of the commit these changes belong to.
+    :param changes_data: A list of dictionaries, each representing a file change.
+                         Example: [
+                             {
+                                 'file_path': 'src/main.py',
+                                 'change_type': 'A', 'lines_added': 50, 'lines_deleted': 0
+                             },
+                             {
+                                 'file_path': 'README.md',
+                                 'change_type': 'M', 'lines_added': 5, 'lines_deleted': 2
+                             }
+                         ]
+    """
+    sql = ''' INSERT INTO changes(commit_hash, file_path, change_type, lines_added, lines_deleted)
+              VALUES(?, ?, ?, ?, ?) '''
+
+    records_to_insert = [
+        (
+            commit_hash,
+            change['file_path'],
+            change['change_type'],
+            change.get('lines_added', 0),
+            change.get('lines_deleted', 0)
+        )
+        for change in changes_data
+    ]
+
+    if not records_to_insert:
+        return
+
+    with sqlite3.connect(db_file) as conn:
+        conn.executemany(sql, records_to_insert)

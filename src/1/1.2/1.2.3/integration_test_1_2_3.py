@@ -1,0 +1,277 @@
+import unittest
+import sqlite3
+import os
+import datetime
+
+# --- Implementation to be tested ---
+
+def setup_database(db_file):
+    """
+    Creates the necessary tables in the database if they do not exist.
+    Enables foreign key support.
+    """
+    with sqlite3.connect(db_file) as conn:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS commits (
+                commit_hash TEXT PRIMARY KEY,
+                author_name TEXT NOT NULL,
+                author_email TEXT NOT NULL,
+                commit_date TEXT NOT NULL,
+                message TEXT
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS changes (
+                change_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                commit_hash TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                lines_added INTEGER NOT NULL,
+                lines_deleted INTEGER NOT NULL,
+                FOREIGN KEY (commit_hash) REFERENCES commits (commit_hash) ON DELETE CASCADE
+            )
+        ''')
+        
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_changes_commit_hash ON changes (commit_hash)')
+
+def write_commit(db_file, commit_data):
+    """
+    Writes a single commit's data to the database.
+    It will ignore the insert if a commit with the same hash already exists.
+
+    :param db_file: Path to the SQLite database file.
+    :param commit_data: A dictionary containing commit information.
+                        Example: {
+                            'commit_hash': 'abc123...',
+                            'author_name': 'John Doe',
+                            'author_email': 'john.doe@example.com',
+                            'commit_date': '2023-10-27T10:00:00Z',
+                            'message': 'Initial commit'
+                        }
+    """
+    sql = ''' INSERT OR IGNORE INTO commits(commit_hash, author_name, author_email, commit_date, message)
+              VALUES(:commit_hash, :author_name, :author_email, :commit_date, :message) '''
+    
+    with sqlite3.connect(db_file) as conn:
+        conn.execute(sql, commit_data)
+
+def write_changes(db_file, commit_hash, changes_data):
+    """
+    Writes a list of file changes for a given commit to the database.
+
+    :param db_file: Path to the SQLite database file.
+    :param commit_hash: The hash of the commit these changes belong to.
+    :param changes_data: A list of dictionaries, each representing a file change.
+                         Example: [
+                             {
+                                 'file_path': 'src/main.py',
+                                 'change_type': 'A', 'lines_added': 50, 'lines_deleted': 0
+                             },
+                             {
+                                 'file_path': 'README.md',
+                                 'change_type': 'M', 'lines_added': 5, 'lines_deleted': 2
+                             }
+                         ]
+    """
+    sql = ''' INSERT INTO changes(commit_hash, file_path, change_type, lines_added, lines_deleted)
+              VALUES(?, ?, ?, ?, ?) '''
+
+    records_to_insert = [
+        (
+            commit_hash,
+            change['file_path'],
+            change['change_type'],
+            change.get('lines_added', 0),
+            change.get('lines_deleted', 0)
+        )
+        for change in changes_data
+    ]
+
+    if not records_to_insert:
+        return
+
+    with sqlite3.connect(db_file) as conn:
+        conn.executemany(sql, records_to_insert)
+
+# --- Integration Test ---
+
+class TestDataPersistenceIntegration(unittest.TestCase):
+
+    def setUp(self):
+        """Set up a temporary database and test data for each test."""
+        self.db_file = "test_integration.db"
+        # Ensure a clean slate
+        if os.path.exists(self.db_file):
+            os.remove(self.db_file)
+
+        setup_database(self.db_file)
+        
+        self.commit1_data = {
+            'commit_hash': 'a1b2c3d4e5f6',
+            'author_name': 'Test Author',
+            'author_email': 'test@example.com',
+            'commit_date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'message': 'First test commit'
+        }
+        self.commit1_changes = [
+            {'file_path': 'src/main.py', 'change_type': 'A', 'lines_added': 100, 'lines_deleted': 0},
+            {'file_path': 'README.md', 'change_type': 'M', 'lines_added': 10, 'lines_deleted': 2}
+        ]
+
+        self.commit2_data = {
+            'commit_hash': 'g7h8i9j0k1l2',
+            'author_name': 'Another Author',
+            'author_email': 'another@example.com',
+            'commit_date': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            'message': 'Second test commit'
+        }
+        self.commit2_changes = [
+            {'file_path': 'src/main.py', 'change_type': 'M', 'lines_added': 5, 'lines_deleted': 3},
+            {'file_path': 'tests/test_main.py', 'change_type': 'A', 'lines_added': 50, 'lines_deleted': 0}
+        ]
+
+    def tearDown(self):
+        """Remove the temporary database file after each test."""
+        if os.path.exists(self.db_file):
+            os.remove(self.db_file)
+
+    def test_setup_creates_tables_and_index(self):
+        """Verify that setup_database correctly creates tables and indices."""
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            
+            # Check for commits table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='commits';")
+            self.assertIsNotNone(cursor.fetchone(), "commits table was not created.")
+
+            # Check for changes table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='changes';")
+            self.assertIsNotNone(cursor.fetchone(), "changes table was not created.")
+
+            # Check for index on changes table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_changes_commit_hash';")
+            self.assertIsNotNone(cursor.fetchone(), "idx_changes_commit_hash index was not created.")
+
+    def test_write_single_commit_and_changes(self):
+        """Test writing one commit and its associated file changes."""
+        write_commit(self.db_file, self.commit1_data)
+        write_changes(self.db_file, self.commit1_data['commit_hash'], self.commit1_changes)
+
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            
+            # Verify commit was written correctly
+            cursor.execute("SELECT * FROM commits WHERE commit_hash = ?", (self.commit1_data['commit_hash'],))
+            commit_row = cursor.fetchone()
+            self.assertIsNotNone(commit_row)
+            expected_commit_tuple = (
+                self.commit1_data['commit_hash'],
+                self.commit1_data['author_name'],
+                self.commit1_data['author_email'],
+                self.commit1_data['commit_date'],
+                self.commit1_data['message']
+            )
+            self.assertEqual(commit_row, expected_commit_tuple)
+
+            # Verify changes were written correctly
+            cursor.execute("SELECT commit_hash, file_path, change_type, lines_added, lines_deleted FROM changes WHERE commit_hash = ?", (self.commit1_data['commit_hash'],))
+            change_rows = cursor.fetchall()
+            self.assertEqual(len(change_rows), 2)
+            
+            expected_changes = [
+                (self.commit1_data['commit_hash'], c['file_path'], c['change_type'], c['lines_added'], c['lines_deleted'])
+                for c in self.commit1_changes
+            ]
+            self.assertCountEqual(change_rows, expected_changes)
+
+    def test_write_multiple_commits_and_changes(self):
+        """Test writing multiple, distinct commits and their changes."""
+        # Write first commit and changes
+        write_commit(self.db_file, self.commit1_data)
+        write_changes(self.db_file, self.commit1_data['commit_hash'], self.commit1_changes)
+
+        # Write second commit and changes
+        write_commit(self.db_file, self.commit2_data)
+        write_changes(self.db_file, self.commit2_data['commit_hash'], self.commit2_changes)
+        
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            
+            # Verify total counts
+            self.assertEqual(cursor.execute("SELECT COUNT(*) FROM commits").fetchone()[0], 2)
+            self.assertEqual(cursor.execute("SELECT COUNT(*) FROM changes").fetchone()[0], 4)
+
+            # Verify data for the second commit to ensure no data is mixed up
+            cursor.execute("SELECT commit_hash, file_path, change_type, lines_added, lines_deleted FROM changes WHERE commit_hash = ?", (self.commit2_data['commit_hash'],))
+            change_rows = cursor.fetchall()
+            
+            expected_changes = [
+                (self.commit2_data['commit_hash'], c['file_path'], c['change_type'], c['lines_added'], c['lines_deleted'])
+                for c in self.commit2_changes
+            ]
+            self.assertCountEqual(change_rows, expected_changes)
+
+    def test_duplicate_commit_is_ignored(self):
+        """Test that writing a commit with an existing hash is ignored."""
+        write_commit(self.db_file, self.commit1_data)
+        write_commit(self.db_file, self.commit1_data)  # Attempt to write the same commit again
+
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM commits WHERE commit_hash = ?", (self.commit1_data['commit_hash'],))
+            count = cursor.fetchone()[0]
+            self.assertEqual(count, 1)
+
+    def test_foreign_key_constraint_on_changes(self):
+        """Test that changes cannot be written for a non-existent commit."""
+        non_existent_hash = "000000000000"
+        with self.assertRaises(sqlite3.IntegrityError, msg="Should raise IntegrityError for foreign key violation"):
+            write_changes(self.db_file, non_existent_hash, self.commit1_changes)
+
+    def test_cascade_delete_on_commit(self):
+        """Test that deleting a commit also deletes its associated changes."""
+        # Setup: Write a commit and its changes
+        write_commit(self.db_file, self.commit1_data)
+        write_changes(self.db_file, self.commit1_data['commit_hash'], self.commit1_changes)
+
+        # Verify initial state
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            self.assertEqual(cursor.execute("SELECT COUNT(*) FROM commits").fetchone()[0], 1)
+            self.assertEqual(cursor.execute("SELECT COUNT(*) FROM changes").fetchone()[0], 2)
+
+        # Action: Delete the commit
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON;") # Ensure FK is on for this connection too
+            cursor.execute("DELETE FROM commits WHERE commit_hash = ?", (self.commit1_data['commit_hash'],))
+
+        # Verify: Both commit and its changes are gone
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+            self.assertEqual(cursor.execute("SELECT COUNT(*) FROM commits").fetchone()[0], 0)
+            self.assertEqual(cursor.execute("SELECT COUNT(*) FROM changes").fetchone()[0], 0, "Changes were not cascade deleted.")
+    
+    def test_write_commit_with_no_changes(self):
+        """Test writing a commit with an empty list of changes."""
+        write_commit(self.db_file, self.commit1_data)
+        write_changes(self.db_file, self.commit1_data['commit_hash'], [])
+
+        with sqlite3.connect(self.db_file) as conn:
+            cursor = conn.cursor()
+
+            # Verify commit exists
+            cursor.execute("SELECT COUNT(*) FROM commits WHERE commit_hash = ?", (self.commit1_data['commit_hash'],))
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+            # Verify no changes were added
+            cursor.execute("SELECT COUNT(*) FROM changes WHERE commit_hash = ?", (self.commit1_data['commit_hash'],))
+            self.assertEqual(cursor.fetchone()[0], 0)
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

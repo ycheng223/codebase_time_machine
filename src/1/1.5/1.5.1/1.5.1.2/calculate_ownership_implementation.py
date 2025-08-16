@@ -1,0 +1,38 @@
+def calculate_ownership(change_history):
+    """
+    Calculates code ownership based on lines changed and author frequency.
+
+    Args:
+        change_history (list of dict): A list where each dictionary represents
+                                      a change and must contain 'author',
+                                      'lines_added', and 'lines_deleted' keys.
+                                      Example: [{'author': 'dev1', 'lines_added': 10, 'lines_deleted': 2}]
+
+    Returns:
+        dict: A dictionary where keys are author names and values are another
+              dictionary containing the total 'lines_changed' and the
+              'commit_count' (author frequency).
+              Example: {'dev1': {'lines_changed': 12, 'commit_count': 1}}
+    """
+    ownership_data = {}
+
+    for change in change_history:
+        author = change.get('author')
+        if not author:
+            continue
+
+        # Ensure author is in the dictionary
+        if author not in ownership_data:
+            ownership_data[author] = {
+                'lines_changed': 0,
+                'commit_count': 0
+            }
+
+        # Calculate lines changed for this specific commit
+        lines_changed = change.get('lines_added', 0) + change.get('lines_deleted', 0)
+
+        # Update the author's totals
+        ownership_data[author]['lines_changed'] += lines_changed
+        ownership_data[author]['commit_count'] += 1
+
+    return ownership_data

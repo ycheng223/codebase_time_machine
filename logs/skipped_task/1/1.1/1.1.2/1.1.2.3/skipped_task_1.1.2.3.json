@@ -1,0 +1,6 @@
+{
+  "task_id": "1.1.2.3",
+  "task": "Define data structure for SemanticChange (change_type, element_name, code_snippet)",
+  "skip_reason": "Non-code task",
+  "timestamp": "2025-08-16 16:07:08"
+}

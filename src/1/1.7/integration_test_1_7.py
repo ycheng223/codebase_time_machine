@@ -1,0 +1,173 @@
+import unittest
+from unittest.mock import patch, MagicMock
+import os
+import shutil
+import tempfile
+
+# To make this a single, runnable test file, we are including plausible implementations
+# based on the provided snippets. In a real project structure, these would be in separate
+# files (e.g., 'repo_analyzer.py', 'code_assistant.py') and imported.
+
+# --- Plausible Implementation for 1.7.1/1.7.1.2 ---
+# Assumed to be in a module named 'repo_analyzer'
+try:
+    import git
+except ImportError:
+    # A simple fallback for environments without GitPython, allowing the code to load.
+    # The test requiring a real clone will fail gracefully with a clear message.
+    git = None
+
+def analyze(repo_url):
+    """
+    Clones a git repository into a new temporary directory and returns the path.
+    """
+    if git is None:
+        raise ImportError("GitPython is not installed, which is required for the 'analyze' function.")
+    
+    # Create a temporary directory that will be cleaned up by the test's teardown
+    clone_path = tempfile.mkdtemp(prefix="test_repo_")
+    try:
+        git.Repo.clone_from(repo_url, clone_path)
+    except Exception:
+        # If cloning fails, clean up the directory immediately and re-raise
+        shutil.rmtree(clone_path)
+        raise
+    
+    return clone_path
+
+# --- Plausible Implementation for 1.7.1/1.7.1.3 ---
+# Assumed to be in a module named 'code_assistant'
+import openai
+from collections import Counter
+
+def ask(question: str, repo_path: str):
+    """
+    Asks a question about the code in a given repository path.
+    It builds a context from the repository's file structure and README
+    and queries an LLM for an answer.
+    """
+    if not os.path.isdir(repo_path):
+        raise FileNotFoundError(f"Repository path does not exist: {repo_path}")
+
+    # Build a context string for the LLM
+    context_parts = []
+    
+    # 1. Read the README file if it exists
+    readme_path = os.path.join(repo_path, "README.md")
+    if os.path.exists(readme_path):
+        with open(readme_path, 'r', encoding='utf-8', errors='ignore') as f:
+            readme_content = f.read(2000) # Limit context size
+            context_parts.append(f"README.md content:\n---\n{readme_content}\n---")
+
+    # 2. List the file structure
+    file_list = []
+    for root, dirs, files in os.walk(repo_path):
+        # Ignore the git directory itself
+        if '.git' in dirs:
+            dirs.remove('.git')
+        for name in files:
+            relative_path = os.path.join(root, name).replace(repo_path, '', 1).lstrip(os.sep)
+            file_list.append(relative_path)
+    
+    context_parts.append(f"File structure:\n---\n" + "\n".join(sorted(file_list)[:20]) + "\n---")
+
+    full_context = "\n\n".join(context_parts)
+    
+    prompt = (
+        f"Based on the following repository context, answer the user's question.\n\n"
+        f"Context:\n{full_context}\n\n"
+        f"Question: {question}"
+    )
+
+    # This is the external API call that will be mocked during testing.
+    response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful code analysis assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    return response.choices[0].message.content
+
+# --- Integration Test ---
+
+class TestUiFlowIntegration(unittest.TestCase):
+    
+    def setUp(self):
+        """Set up test resources."""
+        self.repo_path_to_clean = None
+        # A small, public repository specifically for testing git clients
+        self.test_repo_url = "https://github.com/git-fixtures/basic.git"
+
+    def tearDown(self):
+        """Clean up any created directories."""
+        if self.repo_path_to_clean and os.path.isdir(self.repo_path_to_clean):
+            # Use shutil.rmtree to remove the directory and its contents
+            shutil.rmtree(self.repo_path_to_clean, ignore_errors=True)
+
+    @patch('__main__.openai.chat.completions.create')
+    def test_analyze_and_ask_integration_flow(self, mock_openai_create):
+        """
+        Tests the complete integration flow from analyzing a repo URL to asking a question about it.
+        """
+        # 1. Setup the Mock for the OpenAI API call
+        mock_ai_answer = "The repository is a basic fixture for testing Git clients."
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock()
+        mock_message.content = mock_ai_answer
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+        mock_openai_create.return_value = mock_response
+
+        # 2. Execute the 'analyze' step (clones a real repository)
+        try:
+            cloned_repo_path = analyze(self.test_repo_url)
+            self.repo_path_to_clean = cloned_repo_path  # Ensure cleanup
+        except (ImportError, Exception) as e:
+            # If git is not installed or clone fails, skip the test.
+            if 'GitPython' in str(e):
+                self.skipTest("GitPython is not installed. Skipping integration test.")
+            else:
+                self.fail(f"Repository cloning failed with: {e}")
+
+        # 3. Verify the 'analyze' step's output
+        self.assertTrue(os.path.isdir(cloned_repo_path), "Analyze function did not create a directory.")
+        self.assertTrue(os.path.isdir(os.path.join(cloned_repo_path, '.git')), "Cloned directory is not a git repository.")
+        self.assertTrue(os.path.exists(os.path.join(cloned_repo_path, 'README.md')), "Test repository did not contain expected README.md file.")
+
+        # 4. Execute the 'ask' step using the result from 'analyze'
+        question = "What is the purpose of this repository?"
+        actual_answer = ask(question, cloned_repo_path)
+        
+        # 5. Verify the integration between components and the final result
+        
+        # Check that the AI service was called exactly once
+        mock_openai_create.assert_called_once()
+        
+        # Check that the final answer is the one from our mock
+        self.assertEqual(actual_answer, mock_ai_answer)
+        
+        # Inspect the arguments passed to the mock to ensure 'ask' processed the repo content
+        call_args, _ = mock_openai_create.call_args
+        sent_messages = call_args[1] # 'messages' is the second argument
+        user_prompt = sent_messages[1]['content']
+        
+        # Verify that context from the cloned repo was included in the prompt
+        self.assertIn("README.md content:", user_prompt, "Prompt did not include README section.")
+        self.assertIn("File structure:", user_prompt, "Prompt did not include file structure section.")
+        self.assertIn("fixture for git", user_prompt, "README content was not correctly read and passed to the prompt.")
+        self.assertIn("CHANGELOG", user_prompt, "File list was not correctly read and passed to the prompt.")
+        self.assertIn(question, user_prompt, "User's question was not included in the final prompt.")
+
+    def test_ask_with_invalid_path(self):
+        """
+        Tests that the 'ask' function handles a non-existent repository path gracefully.
+        """
+        invalid_path = os.path.join(tempfile.gettempdir(), "non_existent_dir_for_test")
+        with self.assertRaises(FileNotFoundError):
+            ask("Any question", invalid_path)
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

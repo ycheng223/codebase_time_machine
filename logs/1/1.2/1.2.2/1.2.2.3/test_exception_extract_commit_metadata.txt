@@ -1,0 +1,3 @@
+Exception during testing: No module named 'git'
+Function: extract_commit_metadata
+Task: Write unit tests for parsing various commit types (initial, merge, standard)

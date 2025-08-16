@@ -1,0 +1,6 @@
+- Jul 10, 2023 ... I keep seeing questions about "How I make a model to answer based on my data. I have [wiki, pdfs, whatever other documents]"
+  Source: https://www.reddit.com/r/LocalLLaMA/comments/14vnfh2/my_experience_on_starting_with_fine_tuning_llms/
+- Apr 18, 2025 ... Claude Code is a command line tool for agentic coding. This post covers tips and tricks that have proven effective for using Claude Code ...
+  Source: https://www.anthropic.com/engineering/claude-code-best-practices
+- Mar 24, 2022 ... Other option considered: creating an npm package with those types and utils but then, afaik, we would have to deal with versioning and remember ...
+  Source: https://www.reddit.com/r/ExperiencedDevs/comments/tmca5u/monorepo_is_it_worth_considering/

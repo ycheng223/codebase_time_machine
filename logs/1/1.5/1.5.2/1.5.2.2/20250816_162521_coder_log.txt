@@ -1,0 +1,52 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T16:25:21.271747
+Task: Implement function to calculate complexity for a file at a specific commit
+
+Output:
+import git
+import ast
+from radon.visitors import ComplexityVisitor
+
+def calculate_file_complexity_at_commit(repo_path, file_path, commit_hash):
+    """
+    Calculates the cyclomatic complexity of a Python file at a specific git commit.
+
+    Args:
+        repo_path (str): The file system path to the git repository.
+        file_path (str): The relative path to the file within the repository.
+        commit_hash (str): The hash of the commit to inspect.
+
+    Returns:
+        int: The total cyclomatic complexity of the file, or 0 if the file
+             cannot be found, is not a valid Python file, or an error occurs.
+    """
+    try:
+        repo = git.Repo(repo_path, search_parent_directories=True)
+        commit = repo.commit(commit_hash)
+        
+        # Retrieve the file's content (blob) from the specified commit
+        blob = commit.tree / file_path
+        file_content = blob.data_stream.read().decode('utf-8')
+
+        # Parse the code into an Abstract Syntax Tree (AST)
+        tree = ast.parse(file_content)
+        
+        # Use Radon to visit the AST and calculate complexity
+        visitor = ComplexityVisitor.from_ast(tree)
+        
+        # Sum the complexity of all functions/methods in the file
+        total_complexity = sum(block.complexity for block in visitor.blocks)
+        
+        return total_complexity
+
+    except (git.exc.BadName, KeyError, SyntaxError, ValueError, IsADirectoryError):
+        # Handle common errors gracefully:
+        # - git.exc.BadName: Invalid commit hash.
+        # - KeyError: File not found in the commit's tree.
+        # - SyntaxError: The file content is not valid Python code.
+        # - ValueError: Decoding error.
+        # - IsADirectoryError: The path points to a directory.
+        return 0
+
+==================================================

@@ -1,0 +1,2 @@
+Tests for 'aggregate_lines_changed_per_author' passed!
+All 8 tests completed successfully.

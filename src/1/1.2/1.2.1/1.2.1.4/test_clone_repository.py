@@ -1,0 +1,274 @@
+import unittest
+import shutil
+import tempfile
+from pathlib import Path
+from unittest.mock import patch, MagicMock, PropertyMock
+from urllib.parse import urlparse
+from typing import Optional
+
+# The 'git' library is not a standard library, but it's required for the
+# function signature and exception types. We can create a mock for it
+# if it's not installed in the test environment, but for this solution,
+# we assume it's available.
+try:
+    import git
+except ImportError:
+    # Create a dummy git module and exceptions for type hinting and error handling
+    # in case GitPython is not installed in the testing environment.
+    class DummyGit:
+        class exc:
+            GitCommandError = type('GitCommandError', (Exception,), {})
+            InvalidGitRepositoryError = type('InvalidGitRepositoryError', (Exception,), {})
+            NoSuchPathError = type('NoSuchPathError', (Exception,), {})
+        Repo = object
+
+    git = DummyGit()
+
+
+# Implementation to be tested
+def clone_repository(repo_url: str, cache_dir: 'Path', *, ref: 'Optional[str]' = None, depth: 'Optional[int]' = None, force: bool = False) -> 'Path':
+    """
+    Clones a remote git repository to a local cache directory.
+    If the repository already exists and force is False, it fetches updates
+    and checks out the specified reference.
+
+    Args:
+        repo_url: The URL of the git repository.
+        cache_dir: The base directory for the local cache.
+        ref: The branch, tag, or commit to checkout. If the repository is updated,
+             this ref is checked out. If None, the current branch is updated.
+        depth: If specified, creates a shallow clone with a history truncated to this
+               number of commits. This argument is ignored if the repository
+               is being updated.
+        force: If True, deletes the destination directory if it already exists
+               before cloning.
+
+    Returns:
+        The path to the cloned repository.
+
+    Raises:
+        IOError: If there is an error during the git clone or update operation.
+    """
+    parsed_url = urlparse(repo_url)
+    repo_subpath = Path(parsed_url.netloc) / Path(parsed_url.path.strip('/')).with_suffix('')
+    destination_path = cache_dir / repo_subpath
+
+    repo = None
+    # Check if a valid repository already exists at the destination
+    if not force and destination_path.is_dir():
+        try:
+            repo = git.Repo(destination_path)
+            # Also check if the remote URL matches the one we want
+            if repo.remotes.origin.url != repo_url:
+                # URL mismatch, this is a different repo. Re-clone required.
+                repo = None
+        except (git.exc.InvalidGitRepositoryError, git.exc.NoSuchPathError):
+            # The path exists but is not a valid git repo. Re-clone required.
+            repo = None
+
+    if repo:
+        # A valid repository exists, so we update it.
+        try:
+            origin = repo.remotes.origin
+            # Fetch all updates from the remote, including tags, and prune deleted branches
+            origin.fetch(prune=True)
+
+            # If a specific ref is provided, check it out
+            if ref:
+                repo.git.checkout(ref)
+
+            # If the current checkout is a branch (not a detached HEAD), pull changes
+            # This will update the working copy to the latest fetched version
+            if not repo.head.is_detached:
+                origin.pull()
+
+        except git.exc.GitCommandError as e:
+            raise IOError(f"Failed to update repository '{repo_url}': {e}") from e
+    else:
+        # The repository does not exist, is invalid, or a force-clone is requested.
+        # So, we (re)clone it.
+        if destination_path.exists():
+            shutil.rmtree(destination_path)
+
+        clone_kwargs = {}
+        if ref:
+            clone_kwargs['branch'] = ref
+        if depth:
+            clone_kwargs['depth'] = depth
+
+        try:
+            # Ensure the parent directory exists, as GitPython won't create it.
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            git.Repo.clone_from(
+                url=repo_url,
+                to_path=destination_path,
+                **clone_kwargs
+            )
+        except git.exc.GitCommandError as e:
+            raise IOError(f"Failed to clone repository '{repo_url}': {e}") from e
+
+    return destination_path
+
+
+class TestCloneRepository(unittest.TestCase):
+
+    def setUp(self):
+        """Set up a temporary directory for caching."""
+        self.cache_dir = Path(tempfile.mkdtemp())
+        self.repo_url = "https://github.com/user/repo.git"
+        self.destination_path = self.cache_dir / "github.com/user/repo"
+
+    def tearDown(self):
+        """Clean up the temporary directory."""
+        shutil.rmtree(self.cache_dir)
+
+    @patch('git.Repo.clone_from')
+    @patch('pathlib.Path.is_dir', return_value=False)
+    @patch('shutil.rmtree')
+    def test_clone_new_repository(self, mock_rmtree, mock_is_dir, mock_clone_from):
+        """Test cloning a repository that doesn't exist locally."""
+        result_path = clone_repository(self.repo_url, self.cache_dir)
+
+        self.assertEqual(result_path, self.destination_path)
+        mock_clone_from.assert_called_once_with(
+            url=self.repo_url,
+            to_path=self.destination_path
+        )
+        mock_rmtree.assert_not_called()
+
+    @patch('git.Repo.clone_from')
+    @patch('pathlib.Path.is_dir', return_value=False)
+    @patch('shutil.rmtree')
+    def test_clone_with_ref_and_depth(self, mock_rmtree, mock_is_dir, mock_clone_from):
+        """Test cloning with a specific ref (branch) and depth."""
+        clone_repository(self.repo_url, self.cache_dir, ref="develop", depth=1)
+
+        mock_clone_from.assert_called_once_with(
+            url=self.repo_url,
+            to_path=self.destination_path,
+            branch="develop",
+            depth=1
+        )
+        mock_rmtree.assert_not_called()
+
+    @patch('git.Repo.clone_from')
+    @patch('pathlib.Path.exists', return_value=True)
+    @patch('shutil.rmtree')
+    def test_force_clone_deletes_existing_directory(self, mock_rmtree, mock_exists, mock_clone_from):
+        """Test that force=True deletes an existing directory before cloning."""
+        clone_repository(self.repo_url, self.cache_dir, force=True)
+
+        mock_rmtree.assert_called_once_with(self.destination_path)
+        mock_clone_from.assert_called_once()
+
+    @patch('git.Repo.clone_from')
+    def test_clone_raises_ioerror_on_git_command_error(self, mock_clone_from):
+        """Test that GitCommandError during clone is wrapped in IOError."""
+        mock_clone_from.side_effect = git.exc.GitCommandError(
+            "clone", "fatal: repository not found"
+        )
+
+        with self.assertRaisesRegex(IOError, "Failed to clone repository"):
+            clone_repository(self.repo_url, self.cache_dir)
+
+    @patch('git.Repo')
+    @patch('shutil.rmtree')
+    @patch('pathlib.Path.is_dir', return_value=True)
+    def test_update_existing_valid_repository(self, mock_is_dir, mock_rmtree, mock_repo_class):
+        """Test updating an existing, valid repository."""
+        mock_repo_instance = MagicMock()
+        type(mock_repo_instance.remotes.origin).url = PropertyMock(return_value=self.repo_url)
+        type(mock_repo_instance.head).is_detached = PropertyMock(return_value=False)
+        mock_repo_class.return_value = mock_repo_instance
+
+        result_path = clone_repository(self.repo_url, self.cache_dir)
+
+        self.assertEqual(result_path, self.destination_path)
+        mock_repo_class.assert_called_once_with(self.destination_path)
+        mock_repo_class.clone_from.assert_not_called()
+        mock_rmtree.assert_not_called()
+        mock_repo_instance.remotes.origin.fetch.assert_called_once_with(prune=True)
+        mock_repo_instance.remotes.origin.pull.assert_called_once()
+        mock_repo_instance.git.checkout.assert_not_called()
+
+    @patch('git.Repo')
+    @patch('pathlib.Path.is_dir', return_value=True)
+    def test_update_existing_repo_with_ref(self, mock_is_dir, mock_repo_class):
+        """Test updating an existing repo and checking out a specific ref."""
+        mock_repo_instance = MagicMock()
+        type(mock_repo_instance.remotes.origin).url = PropertyMock(return_value=self.repo_url)
+        type(mock_repo_instance.head).is_detached = PropertyMock(return_value=False)
+        mock_repo_class.return_value = mock_repo_instance
+
+        clone_repository(self.repo_url, self.cache_dir, ref="v1.0.0")
+
+        mock_repo_instance.remotes.origin.fetch.assert_called_once_with(prune=True)
+        mock_repo_instance.git.checkout.assert_called_once_with("v1.0.0")
+        mock_repo_instance.remotes.origin.pull.assert_called_once()
+
+    @patch('git.Repo')
+    @patch('pathlib.Path.is_dir', return_value=True)
+    def test_update_detached_head_does_not_pull(self, mock_is_dir, mock_repo_class):
+        """Test that pull is not called when the head is detached."""
+        mock_repo_instance = MagicMock()
+        type(mock_repo_instance.remotes.origin).url = PropertyMock(return_value=self.repo_url)
+        type(mock_repo_instance.head).is_detached = PropertyMock(return_value=True)
+        mock_repo_class.return_value = mock_repo_instance
+
+        clone_repository(self.repo_url, self.cache_dir)
+
+        mock_repo_instance.remotes.origin.fetch.assert_called_once_with(prune=True)
+        mock_repo_instance.remotes.origin.pull.assert_not_called()
+
+    @patch('git.Repo')
+    @patch('pathlib.Path.is_dir', return_value=True)
+    def test_update_raises_ioerror_on_git_command_error(self, mock_is_dir, mock_repo_class):
+        """Test that GitCommandError during update is wrapped in IOError."""
+        mock_repo_instance = MagicMock()
+        type(mock_repo_instance.remotes.origin).url = PropertyMock(return_value=self.repo_url)
+        mock_repo_instance.remotes.origin.fetch.side_effect = git.exc.GitCommandError(
+            "fetch", "network error"
+        )
+        mock_repo_class.return_value = mock_repo_instance
+
+        with self.assertRaisesRegex(IOError, "Failed to update repository"):
+            clone_repository(self.repo_url, self.cache_dir)
+
+    @patch('git.Repo')
+    @patch('shutil.rmtree')
+    @patch('pathlib.Path.is_dir', return_value=True)
+    def test_reclones_if_remote_url_mismatches(self, mock_is_dir, mock_rmtree, mock_repo_class):
+        """Test that the repo is re-cloned if the remote URL doesn't match."""
+        mock_repo_instance = MagicMock()
+        type(mock_repo_instance.remotes.origin).url = PropertyMock(return_value="https://example.com/other/repo.git")
+        mock_repo_class.return_value = mock_repo_instance
+
+        clone_repository(self.repo_url, self.cache_dir)
+
+        mock_repo_class.assert_called_once_with(self.destination_path)
+        mock_rmtree.assert_called_once_with(self.destination_path)
+        mock_repo_class.clone_from.assert_called_once_with(
+            url=self.repo_url,
+            to_path=self.destination_path
+        )
+        mock_repo_instance.remotes.origin.fetch.assert_not_called()
+
+    @patch('git.Repo')
+    @patch('shutil.rmtree')
+    @patch('pathlib.Path.is_dir', return_value=True)
+    def test_reclones_if_invalid_git_repository(self, mock_is_dir, mock_rmtree, mock_repo_class):
+        """Test that an invalid git repo at the destination is re-cloned."""
+        # The first call to git.Repo (constructor) will fail
+        mock_repo_class.side_effect = git.exc.InvalidGitRepositoryError
+
+        clone_repository(self.repo_url, self.cache_dir)
+
+        # Check that we attempted to open the repo
+        mock_repo_class.assert_called_once_with(self.destination_path)
+        # Check that we deleted the invalid repo dir
+        mock_rmtree.assert_called_once_with(self.destination_path)
+        # Check that we then cloned it fresh
+        mock_repo_class.clone_from.assert_called_once_with(
+            url=self.repo_url,
+            to_path=self.destination_path
+        )

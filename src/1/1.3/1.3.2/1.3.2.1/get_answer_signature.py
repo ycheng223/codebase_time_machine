@@ -1,0 +1,1 @@
+async def get_answer(query: str, session_id: Optional[str] = None, context: Optional[str] = None) -> 'AnswerResponse':

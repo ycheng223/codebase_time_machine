@@ -1,0 +1,98 @@
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+
+# In a real application, these would be imported from a central models file.
+class SourceDocument(BaseModel):
+    """Represents a source document (e.g., a commit) used for generating an answer."""
+    page_content: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    score: float = 0.0
+
+class AnswerResponse(BaseModel):
+    """The final response object for the Q&A endpoint."""
+    answer: str
+    session_id: Optional[str] = None
+    source_documents: List[SourceDocument] = Field(default_factory=list)
+
+
+# In a real application, these would be initialized and managed as singletons
+# or through a dependency injection framework.
+# For this example, we mock them to focus on the retrieval logic.
+class MockEmbeddingProvider:
+    """Placeholder for a sentence-transformer or OpenAI embedding model."""
+    def encode(self, text: str) -> List[float]:
+        # Returns a dummy vector. A real model would produce a high-dimensional vector.
+        return [len(text) / 100.0] * 128
+
+class MockVectorDB:
+    """Placeholder for a vector database client like ChromaDB or Pinecone."""
+    def query(self, query_embeddings: List[List[float]], n_results: int) -> dict:
+        # Returns a fixed set of mock results.
+        return {
+            'ids': [['commit_abc123', 'commit_def456', 'commit_ghi789']],
+            'documents': [[
+                "feat(api): add user profile endpoint\n\n- Implement GET /api/v1/users/me\n- Add authentication middleware",
+                "fix(db): correct indexing on commits table\n\n- The timestamp column was not indexed, causing slow queries.",
+                "refactor(auth): simplify token generation logic\n\n- Remove redundant checks in JWT creation."
+            ]],
+            'metadatas': [[
+                {'author': 'a@dev.com', 'hash': 'abc123...'},
+                {'author': 'b@dev.com', 'hash': 'def456...'},
+                {'author': 'a@dev.com', 'hash': 'ghi789...'}
+            ]],
+            'distances': [[0.15, 0.32, 0.51]]
+        }
+
+embedding_model = MockEmbeddingProvider()
+vector_db_collection = MockVectorDB()
+
+
+async def get_answer(query: str, session_id: Optional[str] = None, context: Optional[str] = None) -> 'AnswerResponse':
+    """
+    Embeds the user query and fetches relevant documents (commits) from the vector DB.
+
+    This function performs the "Retrieval" step of RAG (Retrieval-Augmented Generation).
+    1.  It takes a natural language query.
+    2.  It converts the query into a numerical vector (embedding).
+    3.  It uses this vector to search a vector database for the most similar documents.
+    4.  It returns these documents, which will be used as context for the "Generation" step.
+    """
+    # 1. Embed the user query to create a vector representation.
+    # The optional 'context' could be used to refine the search query.
+    search_query = f"{context}\n{query}" if context else query
+    query_embedding = embedding_model.encode(search_query)
+
+    # 2. Fetch relevant documents (commits) from the vector database.
+    results = vector_db_collection.query(
+        query_embeddings=[query_embedding],
+        n_results=5  # Request the top 5 most relevant documents
+    )
+
+    # 3. Format the retrieved data into a structured list of SourceDocument objects.
+    source_documents = []
+    if results and results.get('ids') and results['ids'][0]:
+        # Results are batched, so we access the first (and only) result set.
+        ids, documents, metadatas, distances = (
+            results['ids'][0],
+            results['documents'][0],
+            results['metadatas'][0],
+            results['distances'][0]
+        )
+
+        for i in range(len(ids)):
+            source_documents.append(
+                SourceDocument(
+                    page_content=documents[i],
+                    metadata=metadatas[i],
+                    score=distances[i]  # Lower distance typically means more relevant
+                )
+            )
+
+    # 4. Construct the response object.
+    # The 'answer' field is a placeholder; it will be populated by the next
+    # step in the pipeline (the generation step).
+    return AnswerResponse(
+        answer="Context retrieved. The generation step has not been implemented yet.",
+        session_id=session_id,
+        source_documents=source_documents
+    )

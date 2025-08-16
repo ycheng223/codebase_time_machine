@@ -1,0 +1,243 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T15:11:43.885747
+Task: Integration test for: Initialize Project Monorepo
+
+Output:
+import unittest
+import os
+import shutil
+import tempfile
+import subprocess
+import json
+
+# --- START OF IMPLEMENTATIONS ---
+# In a real-world scenario, these functions would be in a separate module
+# (e.g., 'monorepo_initializer.py') and imported. For this self-contained
+# test, they are included directly.
+
+class GitError(Exception):
+    """Custom exception for Git command failures."""
+    pass
+
+def _run_command(command, cwd, capture_output=False):
+    """A helper function to run shell commands."""
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            cwd=cwd,
+            text=True,
+            capture_output=True
+        )
+        return result.stdout.strip() if capture_output else None
+    except subprocess.CalledProcessError as e:
+        error_message = f"Command '{' '.join(command)}' failed in '{cwd}'.\n" \
+                        f"Exit Code: {e.returncode}\n" \
+                        f"Stdout: {e.stdout}\n" \
+                        f"Stderr: {e.stderr}"
+        raise GitError(error_message) from e
+
+def _create_directory_structure(project_path):
+    """Creates the root, packages, and apps directories."""
+    os.makedirs(os.path.join(project_path, "packages"), exist_ok=True)
+    os.makedirs(os.path.join(project_path, "apps"), exist_ok=True)
+
+def _create_config_files(project_path, project_name):
+    """Creates package.json, lerna.json, and .gitignore files."""
+    # package.json
+    package_json_content = {
+        "name": project_name,
+        "private": True,
+        "workspaces": [
+            "apps/*",
+            "packages/*"
+        ]
+    }
+    with open(os.path.join(project_path, "package.json"), "w") as f:
+        json.dump(package_json_content, f, indent=2)
+
+    # lerna.json
+    lerna_json_content = {
+        "packages": [
+            "apps/*",
+            "packages/*"
+        ],
+        "version": "0.0.0"
+    }
+    with open(os.path.join(project_path, "lerna.json"), "w") as f:
+        json.dump(lerna_json_content, f, indent=2)
+
+    # .gitignore
+    gitignore_content = (
+        "# Dependencies\n"
+        "node_modules/\n\n"
+        "# Build artifacts\n"
+        "dist/\n"
+        "build/\n\n"
+        "# System files\n"
+        ".DS_Store\n"
+    )
+    with open(os.path.join(project_path, ".gitignore"), "w") as f:
+        f.write(gitignore_content)
+
+def _initialize_git_repository(project_path):
+    """Initializes a git repository and creates the first commit."""
+    _run_command(["git", "init"], cwd=project_path)
+    _run_command(["git", "add", "."], cwd=project_path)
+    # Configure a dummy user for the commit to work in CI environments
+    _run_command(["git", "config", "user.email", "test@example.com"], cwd=project_path)
+    _run_command(["git", "config", "user.name", "Test User"], cwd=project_path)
+    _run_command(["git", "commit", "-m", "Initial commit: project setup"], cwd=project_path)
+
+
+def initialize_project_monorepo(project_name, base_path="."):
+    """
+    Orchestrates the creation of a new monorepo project.
+
+    This function integrates directory creation, config file generation,
+    and Git repository initialization.
+    """
+    if not project_name or not project_name.islower() or ' ' in project_name:
+        raise ValueError("Project name must be a non-empty, lowercase string with no spaces.")
+
+    project_path = os.path.join(base_path, project_name)
+
+    if os.path.exists(project_path):
+        raise FileExistsError(f"Target directory '{project_path}' already exists.")
+
+    try:
+        # Integration Point 1: Directory structure
+        _create_directory_structure(project_path)
+
+        # Integration Point 2: Configuration files
+        _create_config_files(project_path, project_name)
+
+        # Integration Point 3: Git initialization and commit
+        _initialize_git_repository(project_path)
+
+    except (OSError, GitError) as e:
+        # Clean up on failure
+        if os.path.exists(project_path):
+            shutil.rmtree(project_path)
+        raise RuntimeError(f"Failed to initialize monorepo: {e}") from e
+
+    return project_path
+
+# --- END OF IMPLEMENTATIONS ---
+
+
+class TestInitializeProjectMonorepoIntegration(unittest.TestCase):
+
+    def setUp(self):
+        """Set up a temporary directory for each test."""
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        """Clean up the temporary directory after each test."""
+        shutil.rmtree(self.test_dir)
+
+    def test_successful_initialization(self):
+        """
+        Tests the entire monorepo initialization process for a valid project name.
+        This test verifies the integration of directory creation, file generation,
+        and git repository setup.
+        """
+        project_name = "my-new-monorepo"
+
+        # ACT: Call the main orchestrator function
+        project_path = initialize_project_monorepo(project_name, self.test_dir)
+
+        # ASSERT: Verify all integrated components and their outputs
+
+        # 1. Verify root directory creation
+        self.assertTrue(os.path.isdir(project_path))
+        self.assertEqual(os.path.basename(project_path), project_name)
+
+        # 2. Verify sub-directory structure
+        self.assertTrue(os.path.isdir(os.path.join(project_path, "packages")))
+        self.assertTrue(os.path.isdir(os.path.join(project_path, "apps")))
+
+        # 3. Verify Git initialization
+        self.assertTrue(os.path.isdir(os.path.join(project_path, ".git")))
+        
+        # 4. Verify Git commit history
+        commit_log = _run_command(["git", "log", "--oneline"], cwd=project_path, capture_output=True)
+        self.assertIn("Initial commit: project setup", commit_log)
+        self.assertEqual(len(commit_log.splitlines()), 1, "Should only have one commit")
+
+        # 5. Verify Git status is clean (all files were committed)
+        git_status = _run_command(["git", "status", "--porcelain"], cwd=project_path, capture_output=True)
+        self.assertEqual(git_status, "", "Git working directory should be clean after initial commit")
+        
+        # 6. Verify config files exist
+        self.assertTrue(os.path.exists(os.path.join(project_path, "package.json")))
+        self.assertTrue(os.path.exists(os.path.join(project_path, "lerna.json")))
+        self.assertTrue(os.path.exists(os.path.join(project_path, ".gitignore")))
+
+        # 7. Verify content of package.json
+        with open(os.path.join(project_path, "package.json"), "r") as f:
+            package_data = json.load(f)
+        self.assertEqual(package_data["name"], project_name)
+        self.assertTrue(package_data["private"])
+        self.assertListEqual(package_data["workspaces"], ["apps/*", "packages/*"])
+
+        # 8. Verify content of .gitignore
+        with open(os.path.join(project_path, ".gitignore"), "r") as f:
+            gitignore_content = f.read()
+        self.assertIn("node_modules/", gitignore_content)
+        self.assertIn("dist/", gitignore_content)
+
+    def test_initialization_fails_if_directory_exists(self):
+        """
+        Tests that the entire process is aborted if the target directory already exists.
+        This prevents accidental overwrites and ensures the file system checks are
+        properly integrated into the main workflow.
+        """
+        project_name = "existing-project"
+        existing_path = os.path.join(self.test_dir, project_name)
+        os.makedirs(existing_path)
+
+        with self.assertRaisesRegex(FileExistsError, f"Target directory '{existing_path}' already exists."):
+            initialize_project_monorepo(project_name, self.test_dir)
+
+    def test_initialization_fails_with_invalid_project_name(self):
+        """
+        Tests that input validation is correctly integrated at the start of the process.
+        """
+        invalid_names = ["Project Name", "project-Name", ""]
+        for name in invalid_names:
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    initialize_project_monorepo(name, self.test_dir)
+    
+    def test_cleanup_on_git_failure(self):
+        """
+        Tests the integration of the error handling and cleanup mechanism.
+        If a later step like git commit fails, the created directories should be removed.
+        """
+        project_name = "failed-git-project"
+        project_path = os.path.join(self.test_dir, project_name)
+
+        # To simulate a git failure, we can create a file where the .git directory should be.
+        # This will cause the 'git init' command to fail.
+        _create_directory_structure(project_path)
+        git_blocker_path = os.path.join(project_path, ".git")
+        with open(git_blocker_path, "w") as f:
+            f.write("this is a file, not a directory")
+
+        # We need to test the internal function directly to set up this state,
+        # then test that the main function handles the resulting error.
+        # A more advanced way would be to mock subprocess.run, but this tests file system integration.
+        with self.assertRaises(RuntimeError):
+            # This will fail at the `_initialize_git_repository` step
+            initialize_project_monorepo(project_name, self.test_dir)
+
+        # Assert that the cleanup was successful
+        self.assertFalse(os.path.exists(project_path), "Project directory should be removed after a git failure")
+
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+==================================================

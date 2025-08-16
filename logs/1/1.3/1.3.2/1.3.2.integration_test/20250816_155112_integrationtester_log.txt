@@ -1,0 +1,255 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T15:51:12.462536
+Task: Integration test for: Natural Language Question Answering
+
+Output:
+import unittest
+from unittest.mock import patch, AsyncMock
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+
+# --- System Under Test (SUT) ---
+# The following code is based on the provided implementation contexts to create a
+# self-contained, runnable integration test. It represents the components
+# whose interactions we want to test.
+
+# 1. Data Models
+class SourceDocument(BaseModel):
+    """Represents a source document (e.g., a commit) used for generating an answer."""
+    page_content: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    score: float = 0.0
+
+class AnswerResponse(BaseModel):
+    """The final response object for the Q&A endpoint."""
+    answer: str
+    session_id: Optional[str] = None
+    source_documents: List[SourceDocument] = Field(default_factory=list)
+
+# 2. Mocked Downstream Services
+class MockEmbeddingProvider:
+    """Placeholder for a sentence-transformer or OpenAI embedding model."""
+    def encode(self, text: str) -> List[float]:
+        # A real model would produce a vector based on semantic content.
+        # This mock's output is deterministic but trivial.
+        return [len(text) / 100.0] * 128
+
+class MockVectorDB:
+    """Placeholder for a vector database client like ChromaDB or Pinecone."""
+    def query(self, query_embeddings: List[List[float]], n_results: int) -> dict:
+        # This mock always returns the same two documents, regardless of the query embedding.
+        # This simulates a successful retrieval operation.
+        return {
+            'ids': [['commit_abc123', 'commit_def456']],
+            'documents': [[
+                "feat(api): add user profile endpoint\n\n- Implement GET /api/v1/users/me",
+                "fix(db): correct indexing on commits table\n\n- The timestamp column was not indexed."
+            ]],
+            'metadatas': [[
+                {'author': 'a@dev.com', 'hash': 'abc123...'},
+                {'author': 'b@dev.com', 'hash': 'def456...'}
+            ]],
+            'distances': [[0.15, 0.32]]
+        }
+
+class MockLLM:
+    """Placeholder for a Large Language Model client like OpenAI or Anthropic."""
+    async def generate(self, prompt: str) -> str:
+        # This mock simulates an LLM that bases its answer on the provided context and question.
+        # It allows us to verify that the prompt was constructed correctly.
+        question_part = prompt.split("Question:")[-1].split("Helpful Answer:")[0].strip()
+        context_part = prompt.split("Context:")[1].split("Question:")[0].strip()
+        context_len = len(context_part)
+        return (
+            f"Based on the {context_len} characters of provided context, "
+            f"the answer to '{question_part}' is that a user profile endpoint was added and a "
+            f"database index was fixed."
+        )
+
+# 3. Service Instances
+# These are the actual instances used by the get_answer function.
+embedding_model = MockEmbeddingProvider()
+vector_db_collection = MockVectorDB()
+llm_client = MockLLM()
+
+# 4. The Core Orchestration Logic to be Tested
+async def get_answer(query: str, session_id: Optional[str] = None, context: Optional[str] = None) -> 'AnswerResponse':
+    """
+    Performs a full RAG pipeline:
+    1.  Retrieval: Embeds the query and fetches relevant documents (commits).
+    2.  Generation: Constructs a prompt with the retrieved documents and generates
+        an answer using a Language Model.
+    """
+    # --- 1. Retrieval Step ---
+    search_query = f"{context}\n{query}" if context else query
+    query_embedding = embedding_model.encode(search_query)
+
+    results = vector_db_collection.query(
+        query_embeddings=[query_embedding],
+        n_results=5
+    )
+
+    source_documents = []
+    if results and results.get('ids') and results['ids'][0]:
+        ids, documents, metadatas, distances = (
+            results['ids'][0],
+            results['documents'][0],
+            results['metadatas'][0],
+            results['distances'][0]
+        )
+        for i in range(len(ids)):
+            source_documents.append(
+                SourceDocument(
+                    page_content=documents[i],
+                    metadata=metadatas[i],
+                    score=distances[i]
+                )
+            )
+
+    # --- 2. Generation Step ---
+    final_answer = ""
+    if not source_documents:
+        final_answer = "I could not find any relevant information in the commit history to answer your question."
+    else:
+        context_str = "\n\n---\n\n".join([doc.page_content for doc in source_documents])
+        prompt_template = """
+Use the following context from commit history to answer the question at the end.
+The context contains excerpts from git commits.
+If you don't know the answer, just say that you don't know. Do not try to make up an answer.
+
+Context:
+{context}
+
+Question: {question}
+
+Helpful Answer:"""
+        prompt = prompt_template.format(context=context_str, question=query)
+        final_answer = await llm_client.generate(prompt)
+
+    # --- 3. Construct and return the final response ---
+    return AnswerResponse(
+        answer=final_answer,
+        session_id=session_id,
+        source_documents=source_documents
+    )
+
+# --- Integration Test Suite ---
+
+class TestNaturalLanguageQuestionAnsweringIntegration(unittest.IsolatedAsyncioTestCase):
+    """
+    Integration tests for the 'get_answer' function.
+
+    These tests verify the end-to-end flow of the RAG pipeline, ensuring that
+    the orchestrating function correctly interacts with the (mocked) embedding,
+    vector database, and LLM components.
+    """
+
+    async def test_full_pipeline_with_successful_retrieval_and_generation(self):
+        """
+        Tests the happy path: a query is processed, documents are retrieved,
+        and a final answer is generated by the LLM.
+        """
+        # Arrange
+        query = "What were the latest API and DB changes?"
+        session_id = "session-happy-path"
+
+        # These values are known based on the hardcoded MockVectorDB implementation
+        doc1_content = "feat(api): add user profile endpoint\n\n- Implement GET /api/v1/users/me"
+        doc2_content = "fix(db): correct indexing on commits table\n\n- The timestamp column was not indexed."
+        expected_context_str = f"{doc1_content}\n\n---\n\n{doc2_content}"
+        expected_context_len = len(expected_context_str)
+
+        # This expected answer is based on the MockLLM's generation logic
+        expected_answer = (
+            f"Based on the {expected_context_len} characters of provided context, "
+            f"the answer to '{query}' is that a user profile endpoint was added and a "
+            f"database index was fixed."
+        )
+
+        # Act
+        response = await get_answer(query=query, session_id=session_id)
+
+        # Assert
+        self.assertIsInstance(response, AnswerResponse)
+        self.assertEqual(response.session_id, session_id)
+        self.assertEqual(response.answer, expected_answer)
+
+        # Verify that the retrieved documents are correctly processed and returned
+        self.assertEqual(len(response.source_documents), 2)
+        self.assertEqual(response.source_documents[0].page_content, doc1_content)
+        self.assertEqual(response.source_documents[0].metadata['author'], 'a@dev.com')
+        self.assertEqual(response.source_documents[0].score, 0.15)
+        self.assertEqual(response.source_documents[1].page_content, doc2_content)
+        self.assertEqual(response.source_documents[1].metadata['hash'], 'def456...')
+        self.assertEqual(response.source_documents[1].score, 0.32)
+
+    async def test_pipeline_handles_query_with_context_correctly(self):
+        """
+        Tests that providing conversational context correctly alters the embedding query
+        but uses the original user query for the final LLM prompt.
+        """
+        # Arrange
+        query = "What was the fix?"
+        context = "We were talking about the database."
+        
+        # The MockLLM's response depends on the final question, allowing us to
+        # verify that the original `query` was used, not the combined search query.
+        doc1_content = "feat(api): add user profile endpoint\n\n- Implement GET /api/v1/users/me"
+        doc2_content = "fix(db): correct indexing on commits table\n\n- The timestamp column was not indexed."
+        expected_context_str = f"{doc1_content}\n\n---\n\n{doc2_content}"
+        expected_context_len = len(expected_context_str)
+        
+        expected_answer = (
+            f"Based on the {expected_context_len} characters of provided context, "
+            f"the answer to '{query}' is that a user profile endpoint was added and a "
+            f"database index was fixed."
+        )
+
+        # Act
+        response = await get_answer(query=query, context=context)
+
+        # Assert
+        # Check that the answer uses the specific, un-modified query.
+        self.assertEqual(response.answer, expected_answer)
+        # Check that the source documents are still retrieved as expected.
+        self.assertEqual(len(response.source_documents), 2)
+
+    @patch(f'{__name__}.vector_db_collection.query')
+    @patch(f'{__name__}.llm_client.generate', new_callable=AsyncMock)
+    async def test_pipeline_handles_no_retrieved_documents(self, mock_llm_generate, mock_vdb_query):
+        """
+        Tests the fallback scenario where the vector database finds no relevant documents.
+        The system should return a predefined message and not call the LLM.
+        """
+        # Arrange
+        # We patch the vector DB's query method to simulate it returning no results.
+        mock_vdb_query.return_value = {
+            'ids': [[]],
+            'documents': [[]],
+            'metadatas': [[]],
+            'distances': [[]]
+        }
+        query = "Information on a non-existent feature"
+
+        # Act
+        response = await get_answer(query=query)
+
+        # Assert
+        # Verify the predefined "not found" message.
+        self.assertEqual(
+            response.answer,
+            "I could not find any relevant information in the commit history to answer your question."
+        )
+        # Verify that no source documents are included in the response.
+        self.assertEqual(response.source_documents, [])
+        # Crucially, verify that the LLM was not called, saving computational resources.
+        mock_llm_generate.assert_not_called()
+        # Verify that the retrieval step was still attempted.
+        mock_vdb_query.assert_called_once()
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+==================================================

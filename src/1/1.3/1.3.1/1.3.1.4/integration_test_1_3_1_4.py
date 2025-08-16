@@ -1,0 +1,331 @@
+import unittest
+import csv
+import os
+import tempfile
+import shutil
+
+# ----------------------------------------------------------------------
+# PART 1: IMPLEMENTATIONS
+# These are the actual components of the data ingestion pipeline.
+# The integration test will verify that they work together correctly.
+# ----------------------------------------------------------------------
+
+# Component 1: Data Source
+class CSVReader:
+    """Reads data from a CSV file and returns it as a list of dictionaries."""
+    def read(self, file_path: str) -> list[dict]:
+        """
+        Reads a CSV file.
+
+        Args:
+            file_path: The path to the CSV file.
+
+        Returns:
+            A list of dictionaries, where each dictionary represents a row.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Source file not found at {file_path}")
+
+        with open(file_path, mode='r', newline='') as infile:
+            reader = csv.DictReader(infile)
+            return [row for row in reader]
+
+# Component 2: Data Transformer
+class DataCleaner:
+    """A transformer that cleans and standardizes records."""
+    def transform(self, data: list[dict]) -> list[dict]:
+        """
+        Transforms raw data by cleaning and standardizing it.
+
+        Transformations:
+        1.  Filters out records with a missing or empty 'user_id'.
+        2.  Converts 'age' from string to integer. Records with invalid age are dropped.
+        3.  Converts 'name' to uppercase.
+        4.  Removes any leading/trailing whitespace from the 'email' field.
+
+        Args:
+            data: A list of dictionaries representing raw records.
+
+        Returns:
+            A list of dictionaries representing cleaned records.
+        """
+        cleaned_records = []
+        for record in data:
+            # Rule 1: Filter out records with missing user_id
+            if not record.get('user_id'):
+                continue
+
+            # Rule 2: Validate and convert 'age'
+            try:
+                record['age'] = int(record.get('age', 0))
+            except (ValueError, TypeError):
+                # Skip record if age is not a valid integer
+                continue
+
+            # Rule 3: Convert 'name' to uppercase
+            if 'name' in record:
+                record['name'] = record['name'].upper()
+
+            # Rule 4: Strip whitespace from 'email'
+            if 'email' in record:
+                record['email'] = record.get('email', '').strip()
+
+            cleaned_records.append(record)
+        return cleaned_records
+
+# Component 3: Data Sink
+class InMemoryWriter:
+    """A simple in-memory data sink for testing purposes."""
+    def __init__(self):
+        self.records = []
+        self.write_count = 0
+
+    def write(self, data: list[dict]):
+        """'Writes' data by appending it to an internal list."""
+        self.records.extend(data)
+        self.write_count = len(data)
+
+    def get_all_records(self) -> list[dict]:
+        """Returns all records written to the sink."""
+        return self.records
+
+    def clear(self):
+        """Clears all records from the sink."""
+        self.records = []
+        self.write_count = 0
+
+# Component 4: The Pipeline Orchestrator
+class IngestionPipeline:
+    """Orchestrates the data flow from source to sink."""
+    def __init__(self, reader, transformer, writer):
+        self.reader = reader
+        self.transformer = transformer
+        self.writer = writer
+
+    def run(self, source_path: str) -> dict:
+        """
+        Executes the full ingestion pipeline.
+
+        1. Reads data from the source path.
+        2. Transforms the data.
+        3. Writes the transformed data to the sink.
+
+        Args:
+            source_path: The path to the source data file.
+
+        Returns:
+            A dictionary containing a summary of the run.
+        """
+        print(f"Starting pipeline for source: {source_path}")
+        # 1. Read
+        raw_data = self.reader.read(source_path)
+        initial_count = len(raw_data)
+        print(f"Read {initial_count} records.")
+
+        # 2. Transform
+        transformed_data = self.transformer.transform(raw_data)
+        transformed_count = len(transformed_data)
+        print(f"Transformed {transformed_count} records.")
+
+        # 3. Write
+        self.writer.write(transformed_data)
+        print(f"Wrote {self.writer.write_count} records to sink.")
+
+        return {
+            "read": initial_count,
+            "transformed": transformed_count,
+            "written": self.writer.write_count,
+            "dropped": initial_count - transformed_count
+        }
+
+# ----------------------------------------------------------------------
+# PART 2: INTEGRATION TEST
+# This class tests the interaction of the components defined above.
+# ----------------------------------------------------------------------
+
+class TestIngestionPipelineIntegration(unittest.TestCase):
+
+    def setUp(self):
+        """
+        Set up a temporary directory and instantiate real pipeline components for each test.
+        """
+        # Create a temporary directory to store test CSV files
+        self.test_dir = tempfile.mkdtemp()
+
+        # Instantiate the real components to be tested together
+        self.reader = CSVReader()
+        self.transformer = DataCleaner()
+        self.writer = InMemoryWriter()
+        self.pipeline = IngestionPipeline(self.reader, self.transformer, self.writer)
+
+    def tearDown(self):
+        """
+        Clean up the temporary directory after each test.
+        """
+        shutil.rmtree(self.test_dir)
+
+    def _create_csv(self, filename: str, data: list[list]):
+        """Helper method to create a CSV file in the temporary directory."""
+        file_path = os.path.join(self.test_dir, filename)
+        with open(file_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(data)
+        return file_path
+
+    def test_full_pipeline_with_clean_data(self):
+        """
+        Tests the end-to-end pipeline with a perfect, clean CSV file.
+        All records should be read, transformed, and written successfully.
+        """
+        # Arrange: Create a CSV with valid data
+        header = ['user_id', 'name', 'age', 'email']
+        rows = [
+            ['1', 'Alice', '30', 'alice@example.com'],
+            ['2', 'Bob', '25', '  bob@example.com  '], # Email with whitespace
+            ['3', 'Charlie', '42', 'charlie@example.com']
+        ]
+        csv_path = self._create_csv('clean_data.csv', [header] + rows)
+
+        # Act: Run the pipeline
+        summary = self.pipeline.run(csv_path)
+
+        # Assert: Verify the outcome
+        self.assertEqual(summary['read'], 3)
+        self.assertEqual(summary['transformed'], 3)
+        self.assertEqual(summary['written'], 3)
+        self.assertEqual(summary['dropped'], 0)
+
+        # Verify the data in the sink is correctly transformed
+        written_data = self.writer.get_all_records()
+        self.assertEqual(len(written_data), 3)
+
+        expected_data = [
+            {'user_id': '1', 'name': 'ALICE', 'age': 30, 'email': 'alice@example.com'},
+            {'user_id': '2', 'name': 'BOB', 'age': 25, 'email': 'bob@example.com'},
+            {'user_id': '3', 'name': 'CHARLIE', 'age': 42, 'email': 'charlie@example.com'},
+        ]
+        self.assertListEqual(written_data, expected_data)
+
+    def test_pipeline_handles_dirty_data(self):
+        """
+        Tests the pipeline's ability to filter out invalid records.
+        - Records with missing user_id should be dropped.
+        - Records with non-integer age should be dropped.
+        """
+        # Arrange: Create a CSV with mixed valid and invalid data
+        header = ['user_id', 'name', 'age', 'email']
+        rows = [
+            ['10', 'David', '50', 'david@example.com'],      # Valid
+            ['', 'Eve', '22', 'eve@example.com'],             # Invalid: missing user_id
+            ['12', 'Frank', 'invalid', 'frank@example.com'], # Invalid: bad age
+            ['13', 'Grace', '35', 'grace@example.com'],      # Valid
+        ]
+        csv_path = self._create_csv('dirty_data.csv', [header] + rows)
+
+        # Act: Run the pipeline
+        summary = self.pipeline.run(csv_path)
+
+        # Assert: Verify the summary report
+        self.assertEqual(summary['read'], 4)
+        self.assertEqual(summary['transformed'], 2)
+        self.assertEqual(summary['written'], 2)
+        self.assertEqual(summary['dropped'], 2)
+
+        # Verify only the valid records made it to the sink
+        written_data = self.writer.get_all_records()
+        self.assertEqual(len(written_data), 2)
+
+        expected_user_ids = ['10', '13']
+        actual_user_ids = [record['user_id'] for record in written_data]
+        self.assertListEqual(actual_user_ids, expected_user_ids)
+
+        # Check a specific transformed record
+        self.assertEqual(written_data[0]['name'], 'DAVID')
+        self.assertEqual(written_data[0]['age'], 50)
+
+    def test_pipeline_with_empty_file(self):
+        """
+        Tests the pipeline's behavior with an empty CSV file (only a header).
+        No records should be processed or written.
+        """
+        # Arrange: Create an empty CSV file with only a header
+        header = ['user_id', 'name', 'age', 'email']
+        csv_path = self._create_csv('empty_data.csv', [header])
+
+        # Act: Run the pipeline
+        summary = self.pipeline.run(csv_path)
+
+        # Assert: Verify that nothing was processed
+        self.assertEqual(summary['read'], 0)
+        self.assertEqual(summary['transformed'], 0)
+        self.assertEqual(summary['written'], 0)
+        self.assertEqual(summary['dropped'], 0)
+
+        written_data = self.writer.get_all_records()
+        self.assertEqual(len(written_data), 0)
+
+    def test_pipeline_raises_error_for_nonexistent_file(self):
+        """
+        Tests that the pipeline correctly propagates a FileNotFoundError from the reader
+        if the source file does not exist.
+        """
+        # Arrange: Define a path to a file that does not exist
+        non_existent_path = os.path.join(self.test_dir, 'no_such_file.csv')
+
+        # Act & Assert: Use assertRaises to confirm the correct exception is thrown
+        with self.assertRaises(FileNotFoundError) as context:
+            self.pipeline.run(non_existent_path)
+
+        self.assertIn("Source file not found", str(context.exception))
+
+    def test_pipeline_run_multiple_times_with_writer_clearing(self):
+        """
+        Tests that the pipeline can run multiple times, and the writer's state
+        is handled correctly (i.e., data is appended). This highlights the importance
+        of managing state between runs if necessary.
+        """
+        # Arrange: Create two separate data files
+        header = ['user_id', 'name', 'age', 'email']
+        rows1 = [['101', 'Ivy', '28', 'ivy@example.com']]
+        rows2 = [['102', 'Jack', '33', 'jack@example.com']]
+        csv_path1 = self._create_csv('data1.csv', [header] + rows1)
+        csv_path2 = self._create_csv('data2.csv', [header] + rows2)
+
+        # Act 1: Run the pipeline with the first file
+        summary1 = self.pipeline.run(csv_path1)
+
+        # Assert 1: Check the state after the first run
+        self.assertEqual(summary1['written'], 1)
+        self.assertEqual(len(self.writer.get_all_records()), 1)
+        self.assertEqual(self.writer.get_all_records()[0]['name'], 'IVY')
+
+        # Act 2: Run the pipeline with the second file
+        # The InMemoryWriter appends by default, so we expect 2 records now.
+        summary2 = self.pipeline.run(csv_path2)
+
+        # Assert 2: Check the state after the second run
+        self.assertEqual(summary2['written'], 1)
+        self.assertEqual(len(self.writer.get_all_records()), 2)
+
+        # Now, test clearing the writer and re-running
+        self.writer.clear()
+        self.assertEqual(len(self.writer.get_all_records()), 0)
+
+        # Act 3: Re-run with the first file after clearing
+        summary3 = self.pipeline.run(csv_path1)
+
+        # Assert 3: Check that only the new data is present
+        self.assertEqual(summary3['written'], 1)
+        self.assertEqual(len(self.writer.get_all_records()), 1)
+        self.assertEqual(self.writer.get_all_records()[0]['user_id'], '101')
+
+
+# ----------------------------------------------------------------------
+# PART 3: TEST RUNNER
+# ----------------------------------------------------------------------
+if __name__ == '__main__':
+    # Using argv and exit=False to prevent issues in some IDEs and test runners
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)

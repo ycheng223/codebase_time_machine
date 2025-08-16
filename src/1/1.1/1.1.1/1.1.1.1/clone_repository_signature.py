@@ -1,0 +1,1 @@
+def clone_repository(repo_url: str, destination_path: str | None = None, branch: str | None = None) -> str:

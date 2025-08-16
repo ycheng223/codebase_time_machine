@@ -1,0 +1,29 @@
+# App Spec for DigitalOcean App Platform
+# Generated for Codebase_Time_Machine
+
+{
+  "name": "codebase_time_machine",
+  "services": [
+    {
+      "name": "web",
+      "dockerfile_path": "Dockerfile",
+      "source_dir": ".",
+      "github": {
+        "branch": "main",
+        "deploy_on_push": true,
+        "repo": "YOUR_GITHUB_USERNAME/REPO_NAME"
+      },
+      "health_check": {
+        "http_path": "/"
+      },
+      "instance_count": 1,
+      "instance_size_slug": "basic-xxs",
+      "routes": [
+        {
+          "path": "/"
+        }
+      ]
+    }
+  ],
+  "region": "nyc"
+}

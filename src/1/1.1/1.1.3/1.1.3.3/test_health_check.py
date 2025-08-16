@@ -1,0 +1,60 @@
+import unittest
+import json
+from flask import Flask, jsonify
+
+# Assuming the implementation is in a file named 'app.py'
+# from app import app
+
+# For self-contained testing, we'll redefine the app and route here.
+app = Flask(__name__)
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """
+    Health check endpoint to ensure the service is running.
+    Returns a 200 OK status with a JSON payload indicating the service is healthy.
+    """
+    response_data = {'status': 'ok'}
+    return jsonify(response_data), 200
+
+
+class HealthCheckTest(unittest.TestCase):
+    """
+    Unit tests for the /health endpoint.
+    """
+
+    def setUp(self):
+        """
+        Set up a test client for the Flask application.
+        This is called before each test.
+        """
+        app.testing = True
+        self.client = app.test_client()
+
+    def test_health_check_returns_200_ok(self):
+        """
+        Test that the /health endpoint returns a 200 OK status code.
+        """
+        response = self.client.get('/health')
+        self.assertEqual(response.status_code, 200)
+
+    def test_health_check_returns_correct_json_payload(self):
+        """
+        Test that the /health endpoint returns the expected JSON payload.
+        """
+        response = self.client.get('/health')
+        expected_data = {'status': 'ok'}
+        # json.loads is used to parse the JSON response data
+        actual_data = json.loads(response.get_data(as_text=True))
+        self.assertEqual(actual_data, expected_data)
+
+    def test_health_check_content_type_is_json(self):
+        """
+        Test that the /health endpoint has the correct Content-Type header.
+        """
+        response = self.client.get('/health')
+        self.assertEqual(response.content_type, 'application/json')
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,0 +1,267 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T15:12:18.056509
+Task: Integration test for: Define Data Storage Strategy
+
+Output:
+import unittest
+import os
+import json
+import tempfile
+import shutil
+from abc import ABC, abstractmethod
+
+# --- Implementations for the 'Define Data Storage Strategy' task ---
+
+# Component 1: Abstract and Concrete Storage Strategies
+# This defines the interface for how data can be stored and retrieved.
+
+class StorageStrategy(ABC):
+    """Abstract base class defining the storage strategy interface."""
+
+    @abstractmethod
+    def save(self, identifier: str, data: dict):
+        """Saves data associated with an identifier."""
+        pass
+
+    @abstractmethod
+    def load(self, identifier: str) -> dict:
+        """Loads data associated with an identifier."""
+        pass
+
+    @abstractmethod
+    def delete(self, identifier: str):
+        """Deletes data associated with an identifier."""
+        pass
+
+
+class LocalFileStorageStrategy(StorageStrategy):
+    """A concrete strategy to store data as JSON files in a local directory."""
+
+    def __init__(self, base_path: str):
+        self.base_path = base_path
+        if not os.path.exists(self.base_path):
+            os.makedirs(self.base_path)
+
+    def _get_file_path(self, identifier: str) -> str:
+        """Constructs the full file path for a given identifier."""
+        return os.path.join(self.base_path, f"{identifier}.json")
+
+    def save(self, identifier: str, data: dict):
+        """Saves data to a JSON file."""
+        file_path = self._get_file_path(identifier)
+        with open(file_path, 'w') as f:
+            json.dump(data, f, indent=4)
+
+    def load(self, identifier: str) -> dict:
+        """Loads data from a JSON file."""
+        file_path = self._get_file_path(identifier)
+        try:
+            with open(file_path, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"No data found for identifier '{identifier}' at {file_path}")
+        except json.JSONDecodeError:
+            raise ValueError(f"Could not decode JSON for identifier '{identifier}'")
+
+    def delete(self, identifier: str):
+        """Deletes the file associated with the identifier."""
+        file_path = self._get_file_path(identifier)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        else:
+            raise FileNotFoundError(f"Cannot delete non-existent data for identifier '{identifier}'")
+
+class InMemoryStorageStrategy(StorageStrategy):
+    """A concrete strategy to store data in an in-memory dictionary."""
+
+    def __init__(self):
+        self._storage = {}
+
+    def save(self, identifier: str, data: dict):
+        """Saves data to the internal dictionary."""
+        self._storage[identifier] = data
+
+    def load(self, identifier: str) -> dict:
+        """Loads data from the internal dictionary."""
+        if identifier not in self._storage:
+            raise KeyError(f"No data found for identifier '{identifier}'")
+        return self._storage[identifier]
+
+    def delete(self, identifier: str):
+        """Deletes data from the internal dictionary."""
+        if identifier in self._storage:
+            del self._storage[identifier]
+        else:
+            raise KeyError(f"Cannot delete non-existent data for identifier '{identifier}'")
+
+
+# Component 2: Data Manager
+# This component uses a storage strategy to manage data, decoupling the
+# management logic from the storage implementation.
+
+class DataManager:
+    """Manages data operations using a provided storage strategy."""
+
+    def __init__(self, strategy: StorageStrategy):
+        if not isinstance(strategy, StorageStrategy):
+            raise TypeError("Strategy must be an instance of StorageStrategy")
+        self._strategy = strategy
+
+    def save_record(self, record_id: str, content: dict):
+        """Saves a record using the configured strategy."""
+        print(f"DataManager: Saving record '{record_id}' using {self._strategy.__class__.__name__}")
+        self._strategy.save(record_id, content)
+
+    def get_record(self, record_id: str) -> dict:
+        """Retrieves a record using the configured strategy."""
+        print(f"DataManager: Getting record '{record_id}' using {self._strategy.__class__.__name__}")
+        return self._strategy.load(record_id)
+
+    def delete_record(self, record_id: str):
+        """Deletes a record using the configured strategy."""
+        print(f"DataManager: Deleting record '{record_id}' using {self._strategy.__class__.__name__}")
+        self._strategy.delete(record_id)
+
+    def update_record(self, record_id: str, updates: dict) -> dict:
+        """Loads a record, updates it, and saves it back."""
+        print(f"DataManager: Updating record '{record_id}' using {self._strategy.__class__.__name__}")
+        current_data = self._strategy.load(record_id)
+        current_data.update(updates)
+        self._strategy.save(record_id, current_data)
+        return current_data
+
+# --- Integration Test ---
+
+class TestDataManagerStrategyIntegration(unittest.TestCase):
+
+    def setUp(self):
+        """Set up a temporary directory for file-based tests."""
+        self.test_dir = tempfile.mkdtemp()
+        self.sample_data_1 = {"user": "Alice", "score": 100, "active": True}
+        self.sample_data_2 = {"user": "Bob", "permissions": ["read"], "level": 5}
+
+    def tearDown(self):
+        """Clean up the temporary directory after tests."""
+        shutil.rmtree(self.test_dir)
+
+    def test_integration_with_local_file_strategy(self):
+        """
+        Tests the DataManager's full lifecycle (save, load, delete)
+        when integrated with the LocalFileStorageStrategy.
+        """
+        # 1. Setup: Instantiate components for integration
+        local_strategy = LocalFileStorageStrategy(base_path=self.test_dir)
+        data_manager = DataManager(strategy=local_strategy)
+
+        # 2. Test Save: Use DataManager to save a record
+        data_manager.save_record("user_profile_1", self.sample_data_1)
+
+        # 3. Verify on disk: Check if the file was actually created
+        expected_file_path = os.path.join(self.test_dir, "user_profile_1.json")
+        self.assertTrue(os.path.exists(expected_file_path), "File should be created by LocalFileStorageStrategy")
+
+        # 4. Test Load: Use DataManager to load the record back
+        loaded_data = data_manager.get_record("user_profile_1")
+        self.assertEqual(self.sample_data_1, loaded_data, "Loaded data should match saved data")
+
+        # 5. Test Delete: Use DataManager to delete the record
+        data_manager.delete_record("user_profile_1")
+
+        # 6. Verify Deletion: Check the file is gone and loading raises an error
+        self.assertFalse(os.path.exists(expected_file_path), "File should be deleted by LocalFileStorageStrategy")
+        with self.assertRaises(FileNotFoundError):
+            data_manager.get_record("user_profile_1")
+
+    def test_integration_with_in_memory_strategy(self):
+        """
+        Tests the DataManager's full lifecycle (save, load, delete)
+        when integrated with the InMemoryStorageStrategy.
+        """
+        # 1. Setup: Instantiate components for integration
+        in_memory_strategy = InMemoryStorageStrategy()
+        data_manager = DataManager(strategy=in_memory_strategy)
+
+        # 2. Test Save: Use DataManager to save a record
+        data_manager.save_record("session_data_1", self.sample_data_2)
+
+        # 3. Verify in memory (indirectly): Check if we can load it
+        loaded_data = data_manager.get_record("session_data_1")
+        self.assertEqual(self.sample_data_2, loaded_data, "Loaded in-memory data should match saved data")
+
+        # 4. Test Delete: Use DataManager to delete the record
+        data_manager.delete_record("session_data_1")
+
+        # 5. Verify Deletion: Check that loading the key now raises an error
+        with self.assertRaises(KeyError):
+            data_manager.get_record("session_data_1")
+
+    def test_update_record_with_local_file_strategy(self):
+        """
+        Tests the composite update operation of the DataManager which involves
+        loading, modifying, and saving, using the file strategy.
+        """
+        # 1. Setup
+        local_strategy = LocalFileStorageStrategy(base_path=self.test_dir)
+        data_manager = DataManager(strategy=local_strategy)
+        record_id = "config_settings"
+        initial_config = {"theme": "dark", "notifications": "enabled"}
+
+        # 2. Save initial record
+        data_manager.save_record(record_id, initial_config)
+
+        # 3. Perform update via DataManager
+        updates = {"notifications": "disabled", "font_size": 14}
+        updated_config = data_manager.update_record(record_id, updates)
+
+        # 4. Verify the returned object
+        expected_config = {"theme": "dark", "notifications": "disabled", "font_size": 14}
+        self.assertEqual(expected_config, updated_config)
+
+        # 5. Verify by loading again from scratch
+        reloaded_config = data_manager.get_record(record_id)
+        self.assertEqual(expected_config, reloaded_config, "The persisted data should reflect the update")
+
+    def test_switching_strategy_at_runtime(self):
+        """
+        Tests a scenario where a DataManager could be reconfigured with a
+        different strategy. This is not a feature of the current DataManager
+        but demonstrates the flexibility of the design.
+        """
+        # Setup two strategies
+        local_strategy = LocalFileStorageStrategy(base_path=self.test_dir)
+        in_memory_strategy = InMemoryStorageStrategy()
+
+        # Manager starts with local strategy
+        manager = DataManager(strategy=local_strategy)
+        manager.save_record("persistent_doc", {"data": "on_disk"})
+        self.assertEqual({"data": "on_disk"}, manager.get_record("persistent_doc"))
+
+        # Create a new manager with the in-memory strategy
+        # (The current design requires creating a new manager instance)
+        manager_mem = DataManager(strategy=in_memory_strategy)
+        manager_mem.save_record("volatile_doc", {"data": "in_ram"})
+        self.assertEqual({"data": "in_ram"}, manager_mem.get_record("volatile_doc"))
+
+        # The data from the first manager/strategy should not exist in the second
+        with self.assertRaises(KeyError):
+            manager_mem.get_record("persistent_doc")
+
+    def test_data_manager_raises_error_on_invalid_strategy(self):
+        """
+        Ensures the DataManager validates the strategy object during initialization.
+        This is a test of the integration contract.
+        """
+        class InvalidStrategy:
+            pass
+
+        with self.assertRaises(TypeError):
+            DataManager(strategy=InvalidStrategy())
+
+        with self.assertRaises(TypeError):
+            DataManager(strategy="not_a_strategy_object")
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+==================================================

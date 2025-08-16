@@ -1,0 +1,78 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T15:44:00.331293
+Task: Implement the LLM API call to generate the semantic summary
+
+Output:
+import os
+import openai
+
+def generate_commit_summary(diff_text: str, commit_message: str) -> str:
+    """
+    Generates a semantic summary of a commit using the OpenAI API.
+
+    This function takes a git diff and a commit message, sends them to an LLM,
+    and returns a concise, one-sentence summary explaining the "why" of the change.
+
+    Args:
+        diff_text: The git diff output as a string.
+        commit_message: The original commit message as a string.
+
+    Returns:
+        A string containing the generated semantic summary, or an error message
+        if the API call fails or the API key is not configured.
+    """
+    try:
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            # In a real-world scenario, you might raise an exception
+            # or have a more sophisticated configuration system.
+            return "Error: OPENAI_API_KEY environment variable not set."
+
+        client = openai.OpenAI(api_key=api_key)
+
+        # Limit the diff size to avoid exceeding token limits for very large changes
+        max_diff_length = 8000
+        if len(diff_text) > max_diff_length:
+            diff_text = diff_text[:max_diff_length] + "\n... (diff truncated)"
+
+        prompt = f"""
+Analyze the following git diff and the original commit message.
+Generate a concise, one-sentence semantic summary of the change.
+The summary should explain the 'why' or the high-level 'what' of the change, suitable for a changelog, rather than just listing the files changed.
+
+Original Commit Message:
+{commit_message}
+
+Git Diff:
+---
+{diff_text}
+---
+
+Semantic Summary:
+"""
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # A modern, cost-effective model
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.2,
+            max_tokens=150,
+            n=1,
+            stop=None,
+        )
+
+        summary = response.choices[0].message.content.strip()
+
+        # The model might wrap the output in quotes, so we remove them.
+        if summary.startswith('"') and summary.endswith('"'):
+            summary = summary[1:-1]
+
+        return summary
+
+    except Exception as e:
+        # Basic error handling for API calls or other issues.
+        return f"Error during summary generation: {str(e)}"
+
+==================================================

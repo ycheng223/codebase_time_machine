@@ -1,0 +1,259 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T16:29:40.341284
+Task: Integration test for: Business Context Integration
+
+Output:
+import unittest
+from unittest.mock import patch, Mock
+import re
+import requests
+
+# --- Implementation 1: 1.6.1/1.6.1.1 ---
+
+def extract_ticket_ids(commit_message):
+    """
+    Extracts ticket IDs (e.g., JIRA-123, PROJ-456) from a commit message.
+    It finds all unique matches of the pattern [A-Z]+-[0-9]+.
+    """
+    pattern = r'([A-Z]+-\d+)'
+    found_ids = re.findall(pattern, commit_message)
+    # Return a list of unique IDs to avoid redundant processing
+    return sorted(list(set(found_ids)))
+
+# --- Implementation 2: 1.6.1/1.6.1.2 ---
+
+class TicketSystemAPIClient:
+    """
+    A simple API client for a generic ticket system.
+    """
+    def __init__(self, base_url, api_token):
+        """
+        Initializes the client with the API base URL and an authentication token.
+        """
+        if not base_url.endswith('/'):
+            base_url += '/'
+        self.base_url = base_url
+        self.headers = {
+            'Authorization': f'Bearer {api_token}',
+            'Content-Type': 'application/json'
+        }
+
+    def get_ticket_details(self, ticket_id):
+        """
+        Fetches details for a single ticket ID.
+
+        Returns:
+            dict: The ticket data as a dictionary if the request is successful.
+            None: If the ticket is not found (404) or another error occurs.
+        """
+        try:
+            url = f"{self.base_url}api/tickets/{ticket_id}"
+            response = requests.get(url, headers=self.headers)
+            response.raise_for_status()  # Raises HTTPError for bad responses (4xx or 5xx)
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            # Specifically handling not found cases gracefully
+            if e.response.status_code == 404:
+                return None
+            # Re-raise other HTTP errors
+            raise
+        except requests.exceptions.RequestException:
+            # Handle other network-related errors
+            return None
+
+# --- Integration Test ---
+
+class TestBusinessContextIntegration(unittest.TestCase):
+
+    def setUp(self):
+        """Set up the test client before each test."""
+        self.api_client = TicketSystemAPIClient(
+            base_url='https://api.ticketsystem.dev',
+            api_token='dummy-token'
+        )
+
+    def mock_api_response(self, *args, **kwargs):
+        """
+        A mock function to simulate requests.get behavior based on URL.
+        """
+        mock_response = Mock()
+        url = args[0]
+
+        if 'PROJ-123' in url:
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                'id': 'PROJ-123',
+                'summary': 'Implement user authentication',
+                'status': 'In Progress'
+            }
+        elif 'DATA-456' in url:
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                'id': 'DATA-456',
+                'summary': 'Fix data pipeline issue',
+                'status': 'Done'
+            }
+        elif 'INVALID-999' in url:
+            mock_response.status_code = 404
+            mock_response.reason = 'Not Found'
+            mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+                response=mock_response
+            )
+        else:
+            mock_response.status_code = 404
+            mock_response.reason = 'Not Found'
+            mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+                response=mock_response
+            )
+
+        return mock_response
+
+    @patch('requests.get')
+    def test_integration_with_single_valid_ticket(self, mock_get):
+        """
+        Tests the full flow: a commit message with one valid ticket ID is parsed,
+        and the corresponding ticket details are fetched.
+        """
+        mock_get.side_effect = self.mock_api_response
+        commit_message = "feat(auth): Implement login endpoint. Closes PROJ-123"
+
+        # 1. Extract ticket IDs from the commit message
+        ticket_ids = extract_ticket_ids(commit_message)
+        self.assertEqual(ticket_ids, ['PROJ-123'])
+
+        # 2. Fetch details for the extracted ID
+        ticket_details = self.api_client.get_ticket_details(ticket_ids[0])
+
+        # 3. Assertions
+        mock_get.assert_called_once_with(
+            'https://api.ticketsystem.dev/api/tickets/PROJ-123',
+            headers=self.api_client.headers
+        )
+        self.assertIsNotNone(ticket_details)
+        self.assertEqual(ticket_details['id'], 'PROJ-123')
+        self.assertEqual(ticket_details['summary'], 'Implement user authentication')
+
+    @patch('requests.get')
+    def test_integration_with_multiple_tickets(self, mock_get):
+        """
+        Tests the flow with a commit message containing multiple unique ticket IDs.
+        """
+        mock_get.side_effect = self.mock_api_response
+        commit_message = "fix(data): Correct pipeline logic for DATA-456. Also touches upon PROJ-123."
+        
+        # 1. Extract
+        ticket_ids = extract_ticket_ids(commit_message)
+        self.assertEqual(ticket_ids, ['DATA-456', 'PROJ-123'])
+
+        # 2. Fetch details for all tickets
+        all_details = []
+        for ticket_id in ticket_ids:
+            details = self.api_client.get_ticket_details(ticket_id)
+            if details:
+                all_details.append(details)
+
+        # 3. Assertions
+        self.assertEqual(mock_get.call_count, 2)
+        
+        # Check that both URLs were called
+        call_urls = [call.args[0] for call in mock_get.call_args_list]
+        self.assertIn('https://api.ticketsystem.dev/api/tickets/DATA-456', call_urls)
+        self.assertIn('https://api.ticketsystem.dev/api/tickets/PROJ-123', call_urls)
+
+        self.assertEqual(len(all_details), 2)
+        summaries = {d['summary'] for d in all_details}
+        self.assertIn('Fix data pipeline issue', summaries)
+        self.assertIn('Implement user authentication', summaries)
+
+    @patch('requests.get')
+    def test_integration_with_no_tickets_in_message(self, mock_get):
+        """
+        Tests that if no ticket ID is found, no API call is made.
+        """
+        commit_message = "docs: Update README with installation instructions."
+
+        # 1. Extract
+        ticket_ids = extract_ticket_ids(commit_message)
+        self.assertEqual(ticket_ids, [])
+
+        # 2. Verify no API calls are made
+        if ticket_ids:
+            # This block should not be executed
+            self.api_client.get_ticket_details(ticket_ids[0])
+        
+        mock_get.assert_not_called()
+
+    @patch('requests.get')
+    def test_integration_with_non_existent_ticket(self, mock_get):
+        """
+        Tests the flow where a ticket ID is parsed but does not exist in the ticket system.
+        """
+        mock_get.side_effect = self.mock_api_response
+        commit_message = "refactor: Attempted work on INVALID-999"
+
+        # 1. Extract
+        ticket_ids = extract_ticket_ids(commit_message)
+        self.assertEqual(ticket_ids, ['INVALID-999'])
+
+        # 2. Fetch
+        ticket_details = self.api_client.get_ticket_details(ticket_ids[0])
+
+        # 3. Assertions
+        mock_get.assert_called_once_with(
+            'https://api.ticketsystem.dev/api/tickets/INVALID-999',
+            headers=self.api_client.headers
+        )
+        self.assertIsNone(ticket_details, "Expected None for a 404 response")
+
+    @patch('requests.get')
+    def test_integration_with_duplicate_tickets_in_message(self, mock_get):
+        """
+        Tests that duplicate ticket IDs in a message result in only one API call.
+        """
+        mock_get.side_effect = self.mock_api_response
+        commit_message = "PROJ-123: Start work on auth. This is related to PROJ-123."
+
+        # 1. Extract (the function should return unique IDs)
+        ticket_ids = extract_ticket_ids(commit_message)
+        self.assertEqual(ticket_ids, ['PROJ-123'])
+
+        # 2. Fetch
+        ticket_details = self.api_client.get_ticket_details(ticket_ids[0])
+
+        # 3. Assertions
+        mock_get.assert_called_once()
+        self.assertIsNotNone(ticket_details)
+        self.assertEqual(ticket_details['id'], 'PROJ-123')
+
+    @patch('requests.get')
+    def test_integration_with_mixed_valid_and_invalid_tickets(self, mock_get):
+        """
+        Tests a commit with both a valid and an invalid ticket ID.
+        """
+        mock_get.side_effect = self.mock_api_response
+        commit_message = "feat: Add new feature for PROJ-123, but INVALID-999 was a typo."
+
+        # 1. Extract
+        ticket_ids = extract_ticket_ids(commit_message)
+        self.assertEqual(sorted(ticket_ids), ['INVALID-999', 'PROJ-123'])
+
+        # 2. Process all tickets and collect results
+        results = {}
+        for ticket_id in ticket_ids:
+            results[ticket_id] = self.api_client.get_ticket_details(ticket_id)
+
+        # 3. Assertions
+        self.assertEqual(mock_get.call_count, 2)
+        
+        # Check valid ticket was found
+        self.assertIsNotNone(results['PROJ-123'])
+        self.assertEqual(results['PROJ-123']['status'], 'In Progress')
+        
+        # Check invalid ticket returned None
+        self.assertIsNone(results['INVALID-999'])
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+==================================================

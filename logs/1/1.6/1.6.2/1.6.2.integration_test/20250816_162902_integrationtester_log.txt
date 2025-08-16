@@ -1,0 +1,247 @@
+
+=== IntegrationTester Agent Log ===
+Timestamp: 2025-08-16T16:29:02.761839
+Task: Integration test for: Commit-to-Feature Linking
+
+Output:
+import unittest
+import re
+import dataclasses
+from typing import Set, List, Dict, Optional
+
+# --- Component Implementations (as provided) ---
+
+# --- data_models.py ---
+@dataclasses.dataclass(frozen=True)
+class Commit:
+    """Represents a single commit."""
+    sha: str
+    message: str
+
+@dataclasses.dataclass
+class Feature:
+    """Represents a work item or feature."""
+    id: str
+    title: str
+    linked_commits: Set[str] = dataclasses.field(default_factory=set)
+
+# --- feature_store.py ---
+class FeatureStore:
+    """In-memory storage for features."""
+    def __init__(self):
+        self._features: Dict[str, Feature] = {}
+
+    def add_feature(self, feature: Feature):
+        """Adds a new feature to the store."""
+        if feature.id in self._features:
+            raise ValueError(f"Feature with ID {feature.id} already exists.")
+        self._features[feature.id] = feature
+
+    def get_feature(self, feature_id: str) -> Optional[Feature]:
+        """Retrieves a feature by its ID."""
+        return self._features.get(feature_id)
+
+    def link_commit_to_feature(self, feature_id: str, commit_sha: str) -> bool:
+        """Adds a commit SHA to a feature's linked commits."""
+        feature = self.get_feature(feature_id)
+        if feature:
+            feature.linked_commits.add(commit_sha)
+            return True
+        return False
+
+# --- commit_parser.py ---
+class CommitParser:
+    """Extracts feature IDs from commit messages."""
+    def __init__(self, pattern: str = r'([A-Z]{2,}-\d+)'):
+        """Initializes with a regex pattern to find feature IDs."""
+        self.pattern = re.compile(pattern)
+
+    def extract_feature_ids(self, commit_message: str) -> List[str]:
+        """Finds all matching feature IDs in a message."""
+        return self.pattern.findall(commit_message)
+
+# --- commit_linker.py ---
+class CommitFeatureLinker:
+    """Orchestrates the process of linking commits to features."""
+    def __init__(self, parser: CommitParser, store: FeatureStore):
+        self.parser = parser
+        self.store = store
+
+    def process_commit(self, commit: Commit):
+        """
+        Parses a commit message, extracts feature IDs, and links the
+        commit to the corresponding features in the store.
+        """
+        feature_ids = self.parser.extract_feature_ids(commit.message)
+        if not feature_ids:
+            return
+
+        # Use set to process each found feature ID only once per commit
+        for feature_id in set(feature_ids):
+            self.store.link_commit_to_feature(feature_id, commit.sha)
+
+# --- Integration Test ---
+
+class TestCommitFeatureLinkingIntegration(unittest.TestCase):
+    """
+    Integration test for the Commit-to-Feature Linking task.
+    This test verifies the interaction between CommitParser, FeatureStore,
+    and CommitFeatureLinker to ensure commits are correctly linked to
+    existing features based on commit messages.
+    """
+
+    def setUp(self):
+        """
+        Set up the components for each test. This runs before every test method.
+        """
+        # 1. Initialize the components
+        self.feature_store = FeatureStore()
+        self.commit_parser = CommitParser()
+        self.linker = CommitFeatureLinker(self.commit_parser, self.feature_store)
+
+        # 2. Populate the feature store with some initial data
+        self.feature1 = Feature(id="FEAT-123", title="User Authentication")
+        self.feature2 = Feature(id="BUG-456", title="Fix Login Button CSS")
+        self.feature3 = Feature(id="TASK-789", title="Update Documentation")
+
+        self.feature_store.add_feature(self.feature1)
+        self.feature_store.add_feature(self.feature2)
+        self.feature_store.add_feature(self.feature3)
+
+    def test_link_commit_with_single_valid_feature_id(self):
+        """
+        Tests the primary success scenario: a commit message with one valid
+        feature ID should be linked to that feature.
+        """
+        commit_sha = "a1b2c3d4"
+        commit = Commit(sha=commit_sha, message="feat: Implement login endpoint for FEAT-123")
+
+        # Pre-condition: No commits are linked yet
+        self.assertEqual(len(self.feature_store.get_feature("FEAT-123").linked_commits), 0)
+
+        # Action: Process the commit
+        self.linker.process_commit(commit)
+
+        # Post-condition: The commit is now linked to the feature
+        linked_feature = self.feature_store.get_feature("FEAT-123")
+        self.assertIn(commit_sha, linked_feature.linked_commits)
+        self.assertEqual(len(linked_feature.linked_commits), 1)
+
+    def test_link_commit_with_multiple_valid_feature_ids(self):
+        """
+        Tests that a single commit referencing multiple features is linked to all of them.
+        """
+        commit_sha = "b2c3d4e5"
+        commit = Commit(
+            sha=commit_sha,
+            message="fix: Correct alignment and update docs [BUG-456, TASK-789]"
+        )
+
+        # Pre-conditions
+        self.assertEqual(len(self.feature_store.get_feature("BUG-456").linked_commits), 0)
+        self.assertEqual(len(self.feature_store.get_feature("TASK-789").linked_commits), 0)
+
+        # Action
+        self.linker.process_commit(commit)
+
+        # Post-conditions: Commit is linked to both features
+        linked_bug = self.feature_store.get_feature("BUG-456")
+        linked_task = self.feature_store.get_feature("TASK-789")
+        self.assertIn(commit_sha, linked_bug.linked_commits)
+        self.assertIn(commit_sha, linked_task.linked_commits)
+
+        # Ensure it wasn't linked to an unrelated feature
+        unrelated_feature = self.feature_store.get_feature("FEAT-123")
+        self.assertNotIn(commit_sha, unrelated_feature.linked_commits)
+
+    def test_link_commit_with_mixed_valid_and_nonexistent_ids(self):
+        """
+        Tests that the system correctly links to existing features while ignoring
+        feature IDs that do not exist in the store.
+        """
+        commit_sha = "c3d4e5f6"
+        commit = Commit(
+            sha=commit_sha,
+            message="refactor: Improve performance of FEAT-123, related to non-existent TIX-999"
+        )
+
+        # Action
+        self.linker.process_commit(commit)
+
+        # Post-conditions: Linked to the valid feature
+        linked_feature = self.feature_store.get_feature("FEAT-123")
+        self.assertIn(commit_sha, linked_feature.linked_commits)
+
+        # TIX-999 does not exist and should not have been created or linked
+        self.assertIsNone(self.feature_store.get_feature("TIX-999"))
+
+    def test_no_link_created_for_commit_without_id(self):
+        """
+        Tests that a commit with no identifiable feature ID does not result in any new links.
+        """
+        commit_sha = "d4e5f6g7"
+        commit = Commit(sha=commit_sha, message="chore: Minor cleanup of whitespace")
+
+        # Action
+        self.linker.process_commit(commit)
+
+        # Post-conditions: No links should have been created for any feature
+        self.assertEqual(len(self.feature_store.get_feature("FEAT-123").linked_commits), 0)
+        self.assertEqual(len(self.feature_store.get_feature("BUG-456").linked_commits), 0)
+        self.assertEqual(len(self.feature_store.get_feature("TASK-789").linked_commits), 0)
+
+    def test_no_link_created_for_commit_with_malformed_id(self):
+        """
+        Tests that commit messages with text similar to, but not matching, the
+        ID pattern are correctly ignored.
+        """
+        commit_sha = "e5f6g7h8"
+        commit = Commit(sha=commit_sha, message="feat: Work on FEAT123 and bug 456")
+
+        # Action
+        self.linker.process_commit(commit)
+
+        # Post-condition: No links created due to malformed IDs
+        self.assertEqual(len(self.feature_store.get_feature("FEAT-123").linked_commits), 0)
+        self.assertEqual(len(self.feature_store.get_feature("BUG-456").linked_commits), 0)
+
+    def test_processing_same_commit_is_idempotent(self):
+        """
+        Tests that processing the exact same commit multiple times does not create
+        duplicate links, as the underlying storage is a set.
+        """
+        commit_sha = "f6g7h8i9"
+        commit = Commit(sha=commit_sha, message="fix(auth): Secure token handling for BUG-456")
+
+        # Action: Process the commit twice
+        self.linker.process_commit(commit)
+        self.linker.process_commit(commit)
+
+        # Post-condition: The commit is linked only once
+        linked_feature = self.feature_store.get_feature("BUG-456")
+        self.assertIn(commit_sha, linked_feature.linked_commits)
+        self.assertEqual(len(linked_feature.linked_commits), 1)
+
+    def test_multiple_references_to_same_id_in_one_commit(self):
+        """
+        Tests that if a commit message mentions the same feature ID multiple times,
+        it still results in a single link.
+        """
+        commit_sha = "g7h8i9j0"
+        commit = Commit(
+            sha=commit_sha,
+            message="docs: Add notes for TASK-789. Also resolves open questions on TASK-789."
+        )
+
+        # Action
+        self.linker.process_commit(commit)
+
+        # Post-condition: A single link is created
+        linked_feature = self.feature_store.get_feature("TASK-789")
+        self.assertIn(commit_sha, linked_feature.linked_commits)
+        self.assertEqual(len(linked_feature.linked_commits), 1)
+
+if __name__ == '__main__':
+    unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
+==================================================

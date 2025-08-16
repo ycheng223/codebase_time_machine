@@ -1,0 +1,95 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T16:20:33.223723
+Task: Implement logic to extract keywords, entities, and intent (e.g., 'evolution', 'pattern', 'auth')
+
+Output:
+from typing import Any, Dict, Optional
+import re
+
+def parse_query(query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Parses a natural language query to extract intent, keywords, and entities.
+
+    Args:
+        query: The natural language query string.
+        context: Optional dictionary for providing context (not used in this implementation).
+
+    Returns:
+        A dictionary containing the parsed components:
+        - 'intent': The determined user intent (e.g., 'evolution', 'pattern', 'auth').
+        - 'keywords': A list of significant words from the query.
+        - 'entities': A dictionary of identified entities (e.g., terms in quotes).
+        - 'original_query': The original query string.
+    """
+    # --- 1. Define Rules & Knowledge Base ---
+
+    # Define intents and their associated trigger words as sets for efficient lookup
+    INTENT_TRIGGERS = {
+        'evolution': {'evolution', 'history', 'changes', 'log', 'commit'},
+        'pattern': {'pattern', 'find', 'search', 'grep', 'match', 'regex'},
+        'auth': {'auth', 'authentication', 'login', 'user', 'whoami', 'access'}
+    }
+
+    # Define common stop words to be ignored during keyword extraction
+    STOP_WORDS = {
+        'a', 'an', 'the', 'is', 'in', 'on', 'for', 'with', 'show', 'me', 'what',
+        'of', 'tell', 'about', 'give', 'list', 'i', 'to', 'and', 'my'
+    }
+
+    # --- 2. Initialization ---
+
+    result = {
+        'intent': 'unknown',  # Default intent if no triggers are found
+        'keywords': [],
+        'entities': {},
+        'original_query': query
+    }
+
+    lower_query = query.lower()
+    # Tokenize the query, preserving quoted phrases and words with special chars like '.' or '-'
+    tokens = set(re.findall(r'[\w\.-]+|"[^"]*"', lower_query))
+
+    # --- 3. Intent Recognition ---
+
+    detected_intent_triggers = set()
+    # Simple "first match wins" intent recognition logic
+    for intent, triggers in INTENT_TRIGGERS.items():
+        if not triggers.isdisjoint(tokens):
+            result['intent'] = intent
+            detected_intent_triggers = triggers
+            break
+
+    # --- 4. Entity Extraction ---
+
+    # A simple entity recognizer for terms enclosed in double quotes
+    quoted_phrases = re.findall(r'"(.*?)"', query)
+    if quoted_phrases:
+        result['entities']['term'] = quoted_phrases
+
+    # --- 5. Keyword Extraction ---
+
+    # Identify tokens that are part of extracted entities
+    entity_tokens = set()
+    for phrase in quoted_phrases:
+        entity_tokens.update(phrase.lower().split())
+
+    keywords = []
+    # Re-iterate through original token order for keyword list
+    for token in re.findall(r'[\w\.-]+|"[^"]*"', lower_query):
+        # Clean token by removing quotes for individual checks
+        clean_token = token.strip('"')
+
+        # Add to keywords if it's not a stop word, an intent trigger, or part of an entity
+        if (clean_token and
+                clean_token not in STOP_WORDS and
+                clean_token not in detected_intent_triggers and
+                clean_token not in entity_tokens):
+            keywords.append(clean_token)
+
+    # Remove duplicates while preserving the order
+    result['keywords'] = list(dict.fromkeys(keywords))
+
+    return result
+
+==================================================

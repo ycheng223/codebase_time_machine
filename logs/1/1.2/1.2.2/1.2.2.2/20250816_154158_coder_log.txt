@@ -1,0 +1,122 @@
+
+=== Coder Agent Log ===
+Timestamp: 2025-08-16T15:41:58.168605
+Task: Implement logic to identify semantic changes (e.g., 'Function Added', 'Class Renamed', 'Dependency Changed')
+
+Output:
+import ast
+import re
+
+def identify_semantic_changes(old_code: str, new_code: str):
+    """
+    Identifies semantic changes between two Python code snippets.
+
+    Detects 'Function Added', 'Function Removed', 'Class Renamed', 
+    'Dependency Changed' and other similar changes.
+
+    Args:
+        old_code: A string containing the old version of the Python code.
+        new_code: A string containing the new version of the Python code.
+
+    Returns:
+        A list of strings describing the identified semantic changes.
+    """
+
+    class CodeVisitor(ast.NodeVisitor):
+        """A node visitor to extract top-level functions, classes, and imports."""
+        def __init__(self):
+            self.functions = {}  # Maps function name to its AST node
+            self.classes = {}    # Maps class name to its AST node
+            self.dependencies = set()
+
+        def visit_FunctionDef(self, node):
+            self.functions[node.name] = node
+            self.generic_visit(node)
+
+        def visit_ClassDef(self, node):
+            self.classes[node.name] = node
+            self.generic_visit(node)
+
+        def visit_Import(self, node):
+            for alias in node.names:
+                self.dependencies.add(alias.name)
+            self.generic_visit(node)
+
+        def visit_ImportFrom(self, node):
+            if node.module:
+                self.dependencies.add(node.module)
+            self.generic_visit(node)
+
+    changes = []
+    try:
+        old_tree = ast.parse(old_code)
+        new_tree = ast.parse(new_code)
+    except SyntaxError as e:
+        return [f"Syntax error in code: {e}"]
+
+    old_visitor = CodeVisitor()
+    old_visitor.visit(old_tree)
+
+    new_visitor = CodeVisitor()
+    new_visitor.visit(new_tree)
+
+    # 1. Compare Dependencies
+    added_deps = sorted(list(new_visitor.dependencies - old_visitor.dependencies))
+    removed_deps = sorted(list(old_visitor.dependencies - new_visitor.dependencies))
+    for dep in added_deps:
+        changes.append(f"Dependency Added: {dep}")
+    for dep in removed_deps:
+        changes.append(f"Dependency Removed: {dep}")
+
+    # Regex to remove location markers (lineno, col_offset) from AST dump
+    location_regex = re.compile(r'(, |)lineno=\d+, col_offset=\d+(, end_lineno=\d+, end_col_offset=\d+|)')
+
+    def get_normalized_dump(node):
+        """Get a string representation of a node's body, ignoring location."""
+        dump = ast.dump(node.body)
+        return location_regex.sub('', dump)
+
+    def find_structure_changes(old_items, new_items, item_type):
+        """Compare dictionaries of structures (functions/classes) to find changes."""
+        old_names = set(old_items.keys())
+        new_names = set(new_items.keys())
+        
+        removed_names = old_names - new_names
+        added_names = new_names - old_names
+        
+        handled_additions = set()
+        handled_removals = set()
+
+        # Attempt to detect renames by comparing normalized body structures
+        for old_name in removed_names:
+            old_node = old_items[old_name]
+            old_body_dump = get_normalized_dump(old_node)
+            
+            for new_name in added_names:
+                if new_name in handled_additions:
+                    continue
+                
+                new_node = new_items[new_name]
+                new_body_dump = get_normalized_dump(new_node)
+                
+                if old_body_dump == new_body_dump and old_body_dump != "[]":
+                    changes.append(f"{item_type} Renamed: '{old_name}' to '{new_name}'")
+                    handled_removals.add(old_name)
+                    handled_additions.add(new_name)
+                    break
+        
+        # Report remaining items as simple additions or removals
+        for name in sorted(list(added_names - handled_additions)):
+            changes.append(f"{item_type} Added: {name}")
+        for name in sorted(list(removed_names - handled_removals)):
+            changes.append(f"{item_type} Removed: {name}")
+
+    # 2. Compare Functions
+    find_structure_changes(old_visitor.functions, new_visitor.functions, "Function")
+
+    # 3. Compare Classes
+    find_structure_changes(old_visitor.classes, new_visitor.classes, "Class")
+
+    return changes
+
+==================================================

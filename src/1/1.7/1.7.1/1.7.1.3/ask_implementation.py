@@ -1,0 +1,124 @@
+import os
+import openai
+from collections import Counter
+
+def ask(question: str, repo_path: str):
+    """
+    Answers a question about the codebase in the given repository path.
+
+    This function uses a simple keyword search to find relevant files,
+    then uses an LLM to generate an answer based on their content. It requires
+    the OPENAI_API_KEY environment variable to be set.
+
+    Args:
+        question (str): The question to ask about the codebase.
+        repo_path (str): The local path to the cloned repository.
+    """
+    if not os.getenv("OPENAI_API_KEY"):
+        print("Error: OPENAI_API_KEY environment variable not set.")
+        print("Please set your OpenAI API key to use the 'ask' command.")
+        return
+
+    if not os.path.isdir(repo_path):
+        print(f"Error: Repository path not found at '{repo_path}'")
+        print("Please use the 'analyze' command on a repository first.")
+        return
+
+    print(f"Asking: '{question}'")
+
+    # --- 1. Find relevant files using a simple keyword search ---
+    print("Searching for relevant files...")
+    keywords = {word.lower() for word in question.split() if len(word) > 3}
+    file_scores = Counter()
+    
+    source_extensions = {
+        '.py', '.js', '.ts', '.java', '.c', '.cpp', '.h', '.hpp', '.go', '.rs', 
+        '.rb', '.php', '.html', '.css', '.scss', '.json', '.yaml', '.yml', 
+        '.toml', '.md', '.txt', '.sh', '.cfg', '.ini'
+    }
+    relevant_filenames = {'dockerfile', 'makefile', 'readme'}
+
+    for root, _, files in os.walk(repo_path):
+        if '.git' in root.split(os.sep):
+            continue
+
+        for file in files:
+            file_path = os.path.join(root, file)
+            base_name, ext = os.path.splitext(file.lower())
+            
+            if ext not in source_extensions and base_name not in relevant_filenames:
+                continue
+
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read(100 * 1024).lower() # Read first 100KB
+                    score = sum(content.count(kw) for kw in keywords)
+                    if score > 0:
+                        file_scores[file_path] = score
+            except Exception:
+                continue
+
+    if not file_scores:
+        print("\nCould not find any files relevant to your question. Try rephrasing or being more specific.")
+        return
+
+    relevant_files = [file for file, score in file_scores.most_common(7)]
+    
+    # --- 2. Build context for the LLM ---
+    context = ""
+    max_context_chars = 12000  # A safe limit for models like gpt-4o-mini
+    
+    for file_path in relevant_files:
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                file_content = f.read()
+            
+            file_header = f"--- Content of file: {os.path.relpath(file_path, repo_path)} ---\n"
+            full_content = file_header + file_content + "\n\n"
+            
+            if len(context) + len(full_content) > max_context_chars:
+                print(f"Warning: Reached context limit. Some file content may be truncated.")
+                context += full_content[:max_context_chars - len(context)]
+                break
+            
+            context += full_content
+        except Exception:
+            continue
+
+    # --- 3. Call the LLM to get the answer ---
+    system_prompt = (
+        "You are an expert AI software engineer. Your task is to answer questions about a codebase. "
+        "Use the provided file excerpts to formulate your answer. Be concise and refer to specific "
+        "files or code snippets if relevant. If the provided context is insufficient, "
+        "clearly state that and suggest what information might be missing."
+    )
+    user_message = f"Based on the following file contents, please answer the user's question.\n\nCONTEXT:\n{context}\n\nQUESTION: {question}\n\nANSWER:"
+
+    print("Querying AI assistant...")
+    try:
+        client = openai.OpenAI()
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ],
+            temperature=0.1,
+            max_tokens=1500,
+        )
+        answer = response.choices[0].message.content
+
+        print("\n--- AI Answer ---")
+        print(answer)
+        print("-----------------\n")
+
+    except openai.APIConnectionError as e:
+        print("Error: Failed to connect to OpenAI API.")
+        print(f"Details: {e.__cause__}")
+    except openai.RateLimitError:
+        print("Error: OpenAI API request exceeded rate limit.")
+    except openai.APIStatusError as e:
+        print(f"Error: OpenAI API returned an error (Status: {e.status_code}).")
+        print(f"Details: {e.response}")
+    except Exception as e:
+        print(f"\nAn unexpected error occurred: {e}")
